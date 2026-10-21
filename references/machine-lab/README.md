@@ -16,3 +16,9 @@ The device specification derived from these is [docs/devices/dc-machine-set.md](
 | [slide-rheostat.png](slide-rheostat.png) | Slide rheostat: perforated steel cover, white slider on the top rail, cable entering the left end |
 
 Slide rheostat specification: [docs/devices/slide-rheostat.md](../../docs/devices/slide-rheostat.md).
+
+| File                                                       | Content                                                                                                               |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| [control-supply-console.webp](control-supply-console.webp) | Control and power supply console: two analog meters, 0–100 dial knob, side panel with outlet, lamps, buttons, sockets |
+
+Console specification: [docs/devices/control-supply-console.md](../../docs/devices/control-supply-console.md). Only this one photo exists.
