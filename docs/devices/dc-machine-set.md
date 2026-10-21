@@ -1,10 +1,24 @@
-# DC machine set (Esselte Studium, Sweden)
+# Motor–Generator (M-G) set training rig (Esselte Studium, Sweden)
 
 From the photos in [references/machine-lab](../../references/machine-lab/README.md). The panel
 plate reads **ESSELTE STUDIUM, Nr 8000-?? (unreadable), MADE IN SWEDEN**. The DC machine carries an
 **ASEA** nameplate, which is unreadable in the photos. No catalogue or manual was found online, so
 the photos are the reference. **Confirmed** means read from a photo. **?** means a value is still
 needed.
+
+**What it is (confirmed by the lab): a Motor–Generator (M-G) set training rig.** A motor and a
+DC machine sit on one bed, coupled shaft to shaft, and are treated as **one device** in the app:
+
+- In the generator experiments (sheets 2–5), the motor is the prime mover that spins the DC
+  machine, and the DC machine is the generator under test.
+- The panel's MOTOR/GENERATOR toggle shows the same DC machine is also run as a motor in later
+  experiments (with the torque scale), so the model must work in both directions on one shaft.
+- Simulation: one shared shaft speed. Each tick, motor torque − generator load torque − losses
+  sets the acceleration. Loading the generator therefore pulls the speed down, and the student has
+  to hold the speed constant, as each sheet says.
+- On the bench, the set is one large device: the motor's terminal box and the DC machine's
+  terminal panel are both wiring points on it, and the coupling, shaft and speed meter are
+  shown moving together.
 
 ## The set
 
