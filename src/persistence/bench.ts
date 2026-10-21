@@ -3,6 +3,7 @@ import type { Component, ValueField, Workbench } from '../domain/models';
 import { definitionOf, equipmentRegistry, instantiateEquipment } from '../equipment/registry';
 import { defaultMeterSettings, meterRanges, migrateRangeId } from '../instruments/multimeter';
 import { defaultExperiment, experimentById } from '../experiments/catalog';
+import { defaultMachineState, GENERATOR } from '../machines/dcGenerator';
 
 const id = z.string().min(1).max(160);
 const finite = z.number().finite();
@@ -97,6 +98,16 @@ const schema = z.object({
   internalLinks: z.array(z.tuple([id, id])).max(2000),
   plugs,
   cables,
+  machines: z
+    .record(
+      z.object({
+        running: z.boolean(),
+        speedSetRpm: finite.min(0).max(GENERATOR.maxRpm),
+        peakFieldAmps: finite.min(0).max(10),
+        meterMode: z.enum(['motor', 'generator']),
+      }),
+    )
+    .optional(),
 });
 
 /** Schema 1 and 2 saves hold the Phase 1 inventory. Rebuild it and keep every physical choice. */
@@ -282,6 +293,13 @@ export function parseBench(raw: unknown): Workbench {
     .map((e) => e.id);
   if (!sameSet(Object.keys(bench.instrumentSettings), meters))
     throw new Error('Instrument settings do not match the multimeters on the bench.');
+  // Machine state belongs to motor–generator sets only; a set without saved state starts at rest.
+  const sets = bench.equipment.filter((e) => definitionOf(e).kind === 'mg-set').map((e) => e.id);
+  if (Object.keys(bench.machines ?? {}).some((id) => !sets.includes(id)))
+    throw new Error('Machine state does not match the machines on the bench.');
+  const machines = sets.length
+    ? Object.fromEntries(sets.map((id) => [id, bench.machines?.[id] ?? defaultMachineState]))
+    : undefined;
   const experiment = experimentById(bench.experimentId);
   if (!experiment || experiment.profileId !== bench.profileId)
     throw new Error('This file is for an experiment this version does not provide.');
@@ -322,6 +340,7 @@ export function parseBench(raw: unknown): Workbench {
     terminals: normalized.flatMap((n) => n.terminals),
     components,
     internalLinks,
+    ...(machines ? { machines } : {}),
   };
 }
 

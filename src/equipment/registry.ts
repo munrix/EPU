@@ -10,10 +10,14 @@ import type {
 import { labEquipment } from './lab';
 import { networkEquipment } from './network';
 import { machineEquipment } from './machines';
+import { machineLabEquipment } from './machineLab';
 
 export const equipmentRegistry: Record<string, EquipmentDefinition> = {
   ...Object.fromEntries(
-    [...labEquipment, ...networkEquipment, ...machineEquipment].map((d) => [d.id, d]),
+    [...labEquipment, ...networkEquipment, ...machineEquipment, ...machineLabEquipment].map((d) => [
+      d.id,
+      d,
+    ]),
   ),
   'dc-supply-v1': {
     id: 'dc-supply-v1',
@@ -130,6 +134,7 @@ export function instantiateEquipment(
             ? c.resistanceOhms
             : (options.values?.resistanceOhms ?? c.resistanceOhms),
           ...(c.measurementInput ? { measurementInput: true } : {}),
+          ...(c.section ? { section: true } : {}),
         };
       case 'dc-source':
         return {

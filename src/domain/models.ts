@@ -1,4 +1,5 @@
 import type { MeterSettings } from '../instruments/multimeter';
+import type { MachineCircuit, MachineReading, MachineState } from '../machines/dcGenerator';
 export type Id = string;
 export interface Point {
   x: number;
@@ -54,6 +55,8 @@ export type Component =
       origin?: ComponentOrigin;
       /** A voltmeter input: a real conductive path, but never a load's return path. */
       measurementInput?: boolean;
+      /** One section of a tapped part (rheostat end-to-slider, switch pole): an unused section is normal. */
+      section?: boolean;
     }
   | {
       id: Id;
@@ -161,7 +164,11 @@ export type EquipmentKind =
   | 'load'
   | 'dc-machine'
   | 'lamp'
-  | 'variac';
+  | 'variac'
+  | 'mg-set'
+  | 'slide-rheostat'
+  | 'supply-console'
+  | 'load-switch';
 export interface TerminalTemplate {
   key: string;
   label: string;
@@ -178,6 +185,7 @@ export type ComponentTemplate =
       b: string;
       resistanceOhms: number;
       measurementInput?: boolean;
+      section?: boolean;
     }
   | {
       key: string;
@@ -258,6 +266,8 @@ export interface Workbench {
   internalLinks: [Id, Id][];
   plugs: Plug[];
   cables: Cable[];
+  /** Mechanical state of motor–generator sets (prime mover, magnetic history), by equipment ID. */
+  machines?: Record<Id, MachineState>;
 }
 
 export interface ElectricalNode {
@@ -294,6 +304,8 @@ export interface ElectricalCircuit {
   protections: ProtectionDevice[];
   /** The net bonded to protective earth, when any socket on the bench is earthed. */
   earthNodeId?: Id;
+  /** Rotating machines whose EMF depends on the solved currents. */
+  machines?: MachineCircuit[];
 }
 export type DiagnosticCode =
   | 'short-circuit'
@@ -346,6 +358,8 @@ export interface SimulationResult {
   waveforms?: Waveforms;
   /** RMS currents over the window, for protection devices. */
   rmsCurrents?: Record<Id, number>;
+  /** Operating point of each rotating machine, by equipment ID. */
+  machines?: Record<Id, MachineReading>;
 }
 export interface SolverAdapter {
   id: string;

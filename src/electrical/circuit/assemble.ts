@@ -4,6 +4,7 @@ import { defaultMeterSettings, multimeterModel } from '../../instruments/multime
 import { oscilloscopeModel } from '../../instruments/oscilloscope';
 import { buildCircuit } from '../connectivity/buildCircuit';
 import { MAINS_BREAKER_AMPS } from '../../equipment/network';
+import { defaultMachineState, GENERATOR, type MachineCircuit } from '../../machines/dcGenerator';
 
 /**
  * Solver-neutral circuit for the whole bench: physical nets plus the electrical models of
@@ -16,8 +17,70 @@ export function assembleCircuit(bench: Workbench): ElectricalCircuit {
   const components = [...circuit.components];
   const measurements = [...circuit.measurements];
   const protections = [...circuit.protections];
+  const machines: MachineCircuit[] = [];
+  const internalNode = (id: string) => {
+    const node = { id: `net:internal:${id}`, terminalIds: [id], plugIds: [], internal: true };
+    nodes.push(node);
+    terminalToNode[id] = node.id;
+  };
   for (const equipment of bench.equipment) {
     const kind = definitionOf(equipment).kind;
+    if (kind === 'mg-set') {
+      // Armature: EMF behind Ra, between A2 and A1. The EMF value is set by the machine solver.
+      // Tachogenerator: EMF behind its resistance on the TG pair.
+      const id = equipment.id;
+      const pin = (k: string) => `${id}.${k}`;
+      internalNode(pin('armature-emf'));
+      internalNode(pin('tacho-emf'));
+      components.push(
+        {
+          id: pin('emf'),
+          kind: 'dc-source',
+          positive: pin('armature-emf'),
+          negative: pin('A2'),
+          voltageVolts: 0,
+          enabled: true,
+          origin: 'equipment',
+        },
+        {
+          id: pin('armature'),
+          kind: 'resistor',
+          a: pin('armature-emf'),
+          b: pin('A1'),
+          resistanceOhms: GENERATOR.armatureOhms,
+          origin: 'equipment',
+          section: true,
+        },
+        {
+          id: pin('tacho'),
+          kind: 'dc-source',
+          positive: pin('tacho-emf'),
+          negative: pin('TG2'),
+          voltageVolts: 0,
+          enabled: true,
+          origin: 'equipment',
+        },
+        {
+          id: pin('tacho-r'),
+          kind: 'resistor',
+          a: pin('tacho-emf'),
+          b: pin('TG1'),
+          resistanceOhms: GENERATOR.tachoOhms,
+          origin: 'equipment',
+          section: true,
+        },
+      );
+      machines.push({
+        equipmentId: id,
+        emfId: pin('emf'),
+        armatureId: pin('armature'),
+        shuntId: pin('shunt'),
+        seriesId: pin('series'),
+        tachoId: pin('tacho'),
+        state: bench.machines?.[id] ?? defaultMachineState,
+      });
+      continue;
+    }
     if (kind === 'mains-supply')
       protections.push({
         id: `${equipment.id}.breaker`,
@@ -43,5 +106,13 @@ export function assembleCircuit(bench: Workbench): ElectricalCircuit {
     measurements.push(...model.measurements);
     protections.push(...model.protections);
   }
-  return { ...circuit, nodes, terminalToNode, components, measurements, protections };
+  return {
+    ...circuit,
+    nodes,
+    terminalToNode,
+    components,
+    measurements,
+    protections,
+    ...(machines.length ? { machines } : {}),
+  };
 }

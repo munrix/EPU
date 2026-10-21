@@ -1,5 +1,5 @@
 import type { SolverAdapter, Workbench } from '../../domain/models';
-import { linearDcSolver } from '../solvers/linear-dc';
+import { benchSolver } from '../solvers/machine-dc';
 import { needsTransient } from '../solvers/ngspice/transient';
 import { assembleCircuit } from './assemble';
 
@@ -18,7 +18,7 @@ export interface ProtectionTrip {
  */
 export function settleProtection(
   bench: Workbench,
-  solver: SolverAdapter = linearDcSolver,
+  solver: SolverAdapter = benchSolver,
 ): { bench: Workbench; trips: ProtectionTrip[] } {
   const trips: ProtectionTrip[] = [];
   let current = bench;

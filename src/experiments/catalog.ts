@@ -1,5 +1,5 @@
 import type { Workbench } from '../domain/models';
-import { definitionOf, instantiateEquipment, type EquipmentInstance } from '../equipment/registry';
+import { instantiateEquipment, type EquipmentInstance } from '../equipment/registry';
 import {
   DECADE_C_ID,
   DECADE_L_ID,
@@ -36,32 +36,12 @@ import {
   type Winding,
 } from '../equipment/machines';
 import type { ExperimentDefinition, ExperimentTable, StepContext } from './types';
+import { makeBench } from './bench';
+import { generatorOcc } from './generator';
+export { makeBench };
 
 const SP = 'supply.positive',
   SN = 'supply.negative';
-
-export function makeBench(
-  experimentId: string,
-  instances: EquipmentInstance[],
-  meterRangeId = defaultMeterSettings.rangeId,
-  profileId = 'dc',
-): Workbench {
-  const meters = instances.filter((i) => definitionOf(i.equipment).kind === 'multimeter');
-  return {
-    schemaVersion: 3,
-    profileId,
-    experimentId,
-    instrumentSettings: Object.fromEntries(
-      meters.map((m) => [m.equipment.id, { ...defaultMeterSettings, rangeId: meterRangeId }]),
-    ),
-    equipment: instances.map((i) => i.equipment),
-    terminals: instances.flatMap((i) => i.terminals),
-    components: instances.flatMap((i) => i.components),
-    internalLinks: instances.flatMap((i) => i.internalLinks),
-    plugs: [],
-    cables: [],
-  };
-}
 
 const supply = (x = 140, y = 220) => instantiateEquipment('dc-supply-v1', 'supply', { x, y });
 const meter = (x = 890, y = 165) => instantiateEquipment('dt9205a-v1', 'meter', { x, y });
@@ -1232,6 +1212,7 @@ export const experiments: ExperimentDefinition[] = [
   rcSeries,
   singlePhasePower,
   dcMachineTerminals,
+  generatorOcc,
   firstCircuit,
   measuringCurrent,
   seriesDivider,
