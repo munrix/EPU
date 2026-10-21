@@ -1,134 +1,108 @@
-# Re-plan: DC machines and networks labs (draft, 21 Oct 2026)
+# Re-plan: DC machines and networks labs (draft 2, 21 Oct 2026)
 
-Status: **draft, waiting for lectures, experiment sheets and device photos.** Sections marked
-**?** are filled in from those materials; nothing marked **?** is modeled until confirmed
-(same rule as [lab-inventory.md](lab-inventory.md)).
+Source sheets: Erbil Polytechnic University, Erbil Technology College (Dept. of AITE), DC
+Electrical Machine Lab, 3rd semester, experiments 1–5 (2023–2026 editions).
 
-## Goal
+Items marked **?** need a photo or confirmation before they are modeled (same rule as
+[lab-inventory.md](lab-inventory.md)).
 
-Rebuild the DC machines lab and the networks lab as virtual benches: each real device
-recognizable from its photo, wired with the same banana leads, and simulated from the wiring
-alone (the bench never recognizes a "correct" circuit). Order: **DC machines first**, then
-networks.
+## Priority: wiring first
 
-## What already exists (reuse, don't rebuild)
+The most important thing is that students **connect the leads correctly and see them
+correctly**. Physics and polish come after. Concretely:
 
-| Piece                                    | Where                                 | Reuse for                                  |
-| ---------------------------------------- | ------------------------------------- | ------------------------------------------ |
-| Leads, stacking, connectivity            | `domain/`, `electrical/connectivity/` | Everything, unchanged                      |
-| Linear DC solver (MNA, CV/CC)            | `electrical/solvers/linear-dc.ts`     | Machine circuits (they are DC + resistors) |
-| ngspice transient (AC, diodes)           | `electrical/solvers/ngspice/`         | Networks lab AC experiments                |
-| Experiments, steps, tables               | `experiments/`                        | Every new sheet                            |
-| DCM 01 terminal identification           | `equipment/machines.ts`, `catalog.ts` | Becomes the first machine-lab experiment   |
-| NET 01 single-phase power                | `equipment/network.ts`                | Start of the networks lab                  |
-| Wattmeter, cos φ, AC A/V meters, breaker | `instruments/panelMeters.ts`          | Networks lab                               |
+1. **Every terminal where it really is.** Sockets, labels (A1 A2 F1 F2 D1 D2, +/−, meter
+   posts) and colors copied from the device photos.
+2. **Leads that read like the real bench.** A choice of lead colors, sag, readable stacking,
+   draggable bend points (the `waypoints` field already exists in the data but has no UI),
+   highlight on hover of everything on the same net, and no lead hidden behind a device.
+3. **The sheet's figure beside the bench.** The sheet's schematic is redrawn as a live diagram.
+   Each branch lights up when the bench wiring forms it, so the student can see which part of
+   the figure is still missing.
+4. **Wiring check with plain explanations.** "Check wiring" compares the bench nets with the
+   figure as a topology (not by position) and names each mistake, for example:
+   - ammeter in parallel → "the 1 A ammeter is across the field; it would short it"
+   - voltmeter in series → "the voltmeter is in series with the load; no current can flow"
+   - reversed analog meter → "the needle would deflect backwards; swap + and −"
+   - field reversed on a self-excited machine → it is not an error, but the voltage won't build
+     up (physics shows it)
+   - missing switch, or the switch closed before the speed is set (sheet 5 procedure).
+     The check gives feedback only. Readings always come from the solver, so wrong wiring
+     behaves wrong on its own (blown fuse, needle pinned, no build-up) and nothing is faked.
+5. **Consequences visible on the instruments.** Analog needles that pin backwards, fuses that
+   blow, a breaker that trips, and a generator that stays at residual voltage.
 
-## Track A — the "2D section" (faster device building)
+## Experiments from the sheets
 
-**? To confirm what "2D section" means.** Working assumption: a faster way to put a real device
-on the bench than hand-drawing its SVG artwork, which is today's bottleneck (`LabEquipment.tsx`
-is ~1000 lines for a handful of devices).
+| Code   | Sheet                                                                  | Figure (circuit)                                                                                                                    | Table                                                                                      |
+| ------ | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| DCM 01 | 1. Type of DC machine, coil determination                              | a) ohmmeter on each pair; b) 0–110 V DC + ammeter in series + voltmeter across coil; c) lamp in series with coil on AC socket       | R per coil by each method; Rf > Ra > Rs                                                    |
+| DCM 02 | 2. OCC and magnetization curve: A) separately excited, B) self-excited | A) 220 V DC → rheostat → 1 A ammeter → F1–F2; voltmeter 0–300 V on A1–A2. B) F1–F2 → 1 A ammeter → rheostat → switch → across A1–A2 | Eo vs If 0…0.6 A; up **and down** (0→0.6→0) at 1400 rpm                                    |
+| DCM 03 | 3. Speed vs induced voltage, separately and self-excited               | Same as DCM 02 A/B; prime mover 200–1500 rpm variable                                                                               | Eg vs N 200…1400 at If 0.5 A and 0.25 A; self-excited with If constant and with If varying |
+| DCM 04 | 4. Critical resistance and critical speed                              | Same as DCM 02 A (at 750 and 1400 rpm) and B (1400 rpm)                                                                             | Eo vs If; Rc from the tangent; Nc = N1 · RT/RS                                             |
+| DCM 05 | 5. Load test: separately and self-excited                              | DCM 02 circuit + switch → 6–12 A ammeter → variable load across A1–A2                                                               | IL 0…3 A: VL, Eg, If, Ia (Ra = 4 Ω given on the sheet)                                     |
 
-Proposal: **photo-based device faces.**
+The existing DCM 01 differs from the sheet: it uses 2–5 V and an extra variac AC method, and the
+sheet uses 0–110 V up to half and full rated current, plus a lamp on the AC socket. It will be
+rebuilt to match the sheet. Its discussion question 4 ("can you use an AC source?") can stay as an
+optional step.
 
-1. Each device gets a cleaned, straightened front image (photo or flat illustration).
-2. A small layout file places hotspots on it: sockets (terminal keys), knobs/switches
-   (control keys + angle range), displays/needles (readout keys + region).
-3. A generic `ImageDevice` renderer draws the image, overlays live sockets, knobs and
-   needles/LCDs, and plugs into the existing `EquipmentDefinition` (terminals and components are
-   unchanged, so the solver and experiments don't care how a device is drawn).
-4. A dev-only **layout editor** (click on the image to drop a socket/knob, export JSON) so a
-   new device takes minutes, not a day.
+## Equipment the figures require
 
-Outcome: adding a device = photo + layout JSON + electrical definition.
+| Item                                                       | Seen in       | Needed from photos / lab                                           |
+| ---------------------------------------------------------- | ------------- | ------------------------------------------------------------------ |
+| DC generator, terminal board                               | all           | **?** Terminal board layout (A1 A2 F1 F2 D1 D2, E1 E2?), nameplate |
+| Prime mover (motor) + coupling, speed control 200–1500 rpm | 2–5           | **?** What drives it, how speed is set, tachometer type            |
+| 220 V DC supply                                            | 2–5           | **?** Fixed or variable, sockets, protection                       |
+| 0–110 V DC variable supply                                 | 1             | **?** Same unit as above?                                          |
+| Field rheostat ("variable resistance", 1 A circuit)        | 2–5           | **?** Ohms, current rating, terminal layout (2 or 3 posts)         |
+| DC ammeter 1 A (field)                                     | 2–5           | **?** Analog or digital, ranges, posts                             |
+| DC ammeter 6–12 A (load)                                   | 5             | **?** Range switch?                                                |
+| DC voltmeter 0–300 V                                       | 2–5           | **?**                                                              |
+| Single-pole switch                                         | 2B, 3B, 4B, 5 | **?** Type and terminals                                           |
+| Variable load (rheostat or lamp bank, up to 3 A)           | 5             | **?**                                                              |
+| Multimeter DT810B (yellow)                                 | 1             | Sheet photo; replaces DT-9205A for this lab                        |
+| Lamp + AC socket                                           | 1             | **?** Lamp rating                                                  |
+| Leads                                                      | all           | **?** 4 mm banana / safety leads or screw posts? Colors used       |
 
-## Track B — DC machine simulation (the core new physics)
+## Physics the sheets depend on
 
-Electrical time constants (ms) are far faster than mechanical ones (seconds), so the machine
-runs as a **co-simulation** on a fixed real-time tick (~1–5 ms, sub-stepped):
+The co-simulation from draft 1 still applies: each tick the bench is solved with the armature as
+E = K·φ(If)·N in series with Ra, then speed and flux are updated. The sheets add these needs:
 
-```text
-each tick:
-  machine states → network elements:   armature = E (= Kφω) in series with Ra (+ brush drop)
-                                        field windings = resistors (Rf)
-  solve the wired bench (linear-dc)  → Ia, If_shunt, I_series, terminal voltages, meter readings
-  update machine states:
-    field flux   φ = magnetization(If_shunt ± N_series·Ia, residual)   (+ field L/R lag)
-    torque       T = Kφ·Ia
-    speed        J·dω/dt = T − T_load(ω) − B·ω − T_friction
-```
+- **Residual magnetism**: the reading at If = 0 is nonzero (sheet 2, step 3).
+- **Hysteresis**: the down curve lies above the up curve (sheet 2, table 2). A simple
+  hysteresis model with a residual floor is enough. A pure single curve is not.
+- **E ∝ N at constant If**: linear for separately excited, nonlinear for self-excited (sheet 3).
+- **Self-excitation build-up** depends on field circuit resistance and speed: critical
+  resistance Rc (tangent from origin) and critical speed Nc (sheet 4). These fall out of the
+  OCC and the field L/R dynamics without being scripted.
+- **Load drop**: VL = Eg − Ia·Ra (Ra = 4 Ω), with Ia = IL (separately excited) or IL + If
+  (self-excited), plus armature reaction, so the self-excited curve droops faster (sheet 5).
+- Speed is set by the prime mover. Generator load slows it slightly unless the student holds
+  the speed constant, as each sheet asks.
+- Coil values for sheet 1: Rf ≫ Ra > Rs, as in the existing model. Final values come from the
+  nameplate and the OCC numbers (**?** past student results would help a lot).
 
-- **Magnetization curve** (open-circuit characteristic): saturating table plus **residual
-  magnetism**. This gives self-excitation build-up, critical field resistance, and the classic
-  "it won't build up" failure when the field is reversed or the speed is too low.
-- **Series/compound fields**: cumulative vs differential compounding falls out of the sign of the
-  series-field current, i.e. from how the student wired D1–D2.
-- **Prime mover / load**: a driving motor (motor–generator set) or a brake/dynamometer, whichever
-  the lab has (**?**).
-- **Protection and hazards that must appear on their own**: starting current without a starter,
-  a shunt motor **running away** when its field opens, a series motor running away unloaded,
-  burnt fuses or tripped breakers. Speed is capped with a "machine damaged / emergency stop" state.
-- Readouts: tachometer (rpm), analog DC ammeters/voltmeters with needle dynamics, a torque scale
-  if there is a brake.
-- Parameters per machine from its **nameplate** (kW, V, A, rpm, field current) (**?**);
-  internal constants (Ra, Rf, J, curve) are fitted to the nameplate and documented as assumptions.
+## Phases (revised)
 
-Why not ngspice for this: mechanical time constants of seconds would exceed the current
-1.5 s / 10 s run limits, and students need to watch the machine accelerate live. The machine
-circuits are resistive DC, which the in-browser MNA solver already handles at interactive rates.
+| Phase | Deliverable                                                                                                        |
+| ----- | ------------------------------------------------------------------------------------------------------------------ |
+| 1     | **Wiring quality**: bend-point editing, net highlight, lead colors, readable stacks; analog DC meter with polarity |
+| 2     | **Device faces from photos** (image + socket layout + editor) for the machine-lab devices                          |
+| 3     | **Live schematic + wiring check** for the sheet figures (topology match and explained mistakes)                    |
+| 4     | **Machine engine**: OCC with hysteresis/residual, build-up, load, prime mover; unit tests against sheet behaviour  |
+| 5     | **DCM 01–05** steps, tables (matching the sheets' columns) and plots (OCC, Eg–N, external characteristic, Rc/Nc)   |
+| 6     | Networks lab (waiting for its sheets)                                                                              |
 
-## Track C — equipment to model (DC machines lab)
+Phases 1–3 need only the photos. Phase 4 needs the nameplate and, ideally, one set of real
+readings to tune the curve.
 
-To be fixed from the photos. Typical items (**? confirm each**):
+## Still needed
 
-- DC machine(s): shunt / series / compound, terminal box A1–A2, E1–E2 (F1–F2), D1–D2
-- Motor–generator coupling / prime mover; tachometer
-- Variable DC supply (armature) and field supply; 220 V DC mains panel
-- Starter (3- or 4-point), field rheostat, armature rheostat, load resistor bank / lamp load
-- Analog DC ammeters and voltmeters (ranges), switches, fuses/breaker
-- Brake or dynamometer for torque
-
-## Track D — experiments (DC machines lab)
-
-Filled in from the sheets. Expected candidates (**? confirm list and order**):
-
-| Code   | Likely experiment                                       | Needs                                  |
-| ------ | ------------------------------------------------------- | -------------------------------------- |
-| DCM 01 | Terminal identification                                 | **Exists**                             |
-| DCM 02 | Magnetization curve (OCC), separately excited generator | Machine model, prime mover, tachometer |
-| DCM 03 | Load characteristic, separately excited generator       | + load bank                            |
-| DCM 04 | Shunt generator self-excitation, critical resistance    | Residual magnetism, field L/R          |
-| DCM 05 | Series / compound generator characteristics             | Series field coupling                  |
-| DCM 06 | Shunt motor: starting, speed control (field & armature) | Starter, rheostats                     |
-| DCM 07 | Motor load test / efficiency (brake test, Swinburne)    | Brake, loss model                      |
-| DCM 08 | Series motor characteristics                            | Load must stay connected               |
-
-Each experiment keeps today's pattern: steps checked from the wiring and readings, a results
-table filled by **Record**, theory values from the sheet's formulas, plots (OCC, speed–torque,
-efficiency) drawn from the recorded points.
-
-## Track E — networks lab (after DC machines)
-
-**?** Waiting for the sheets. NET 01 exists. Likely additions: three-phase star/delta loads, power
-by the two/three-wattmeter method, power-factor correction, energy meter, and possibly a
-transmission-line model. These run on the existing ngspice path plus new device faces from
-Track A.
-
-## Phases
-
-| Phase | Deliverable                                                                                  | Depends on              |
-| ----- | -------------------------------------------------------------------------------------------- | ----------------------- |
-| 0     | Read lectures + sheets; fill the **?** above; final experiment list and equipment list       | Your materials          |
-| 1     | `ImageDevice` renderer + layout editor; port one existing device to prove it                 | Meaning of "2D section" |
-| 2     | Machine co-simulation engine (pure TS, unit-tested: OCC, build-up, runaway, steady states)   | Nameplate data          |
-| 3     | DC machines lab devices from photos (machine, starter, rheostats, meters, tachometer, brake) | Photos                  |
-| 4     | DCM 02 → DCM 0n experiments with tables and plots, one sheet at a time                       | Sheets                  |
-| 5     | Networks lab devices and experiments                                                         | Sheets + photos         |
-
-## What we need from the lab (checklist)
-
-- [ ] Lectures and every DC machines experiment sheet (with result tables)
-- [ ] Photo of each device: front, plus close-ups of terminals, dials and **nameplates**
-- [ ] Meter ranges, rheostat ratings, starter type, supply voltages
-- [ ] How the machines are coupled (M-G set? brake? dynamometer?) and how speed is measured
-- [ ] Confirm what "2D section" means (see Track A)
+- [ ] Photos: generator terminal board, prime mover and speed control, tachometer, DC supply
+      panel, field rheostat, ammeters, voltmeter, switch, load, and the leads themselves
+- [ ] Machine nameplate(s): kW, V, A, rpm, field current
+- [ ] One set of real readings (OCC, load test) if available
+- [ ] Lectures (for theory text and discussion answers)
+- [ ] Confirm the meaning of "2D section" (assumed: devices from photos rather than hand-drawn art)
