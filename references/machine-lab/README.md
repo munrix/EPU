@@ -10,3 +10,9 @@ User-provided, received 21 October 2026. These are reference materials, not veri
 | Experiment No. 1–5 PDFs                                        | DC Electrical Machine Lab sheets, Erbil Polytechnic University (AITE), 3rd semester                    |
 
 The device specification derived from these is [docs/devices/dc-machine-set.md](../../docs/devices/dc-machine-set.md).
+
+| File                                     | Content                                                                                           |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| [slide-rheostat.png](slide-rheostat.png) | Slide rheostat: perforated steel cover, white slider on the top rail, cable entering the left end |
+
+Slide rheostat specification: [docs/devices/slide-rheostat.md](../../docs/devices/slide-rheostat.md).
