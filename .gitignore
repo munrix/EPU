@@ -1,0 +1,12 @@
+node_modules/
+dist/
+test-results/
+playwright-report/
+.DS_Store
+*.local
+*.tsbuildinfo
+
+# Scratch work from report-building sessions (kept on disk, not in the repo)
+tmp/
+# Generated lab-report PDFs (they carry group members names; kept on disk)
+output/
