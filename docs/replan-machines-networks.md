@@ -6,6 +6,32 @@ Electrical Machine Lab, 3rd semester, experiments 1–5 (2023–2026 editions).
 Items marked **?** need a photo or confirmation before they are modeled (same rule as
 [lab-inventory.md](lab-inventory.md)).
 
+## Status (21 Oct 2026)
+
+Built and pushed: the generator bench and **DCM 02** (open-circuit and magnetization curves, parts A
+and B).
+
+- Devices, with sockets placed from the photos:
+  - the M-G set ([dc-machine-set.md](devices/dc-machine-set.md))
+  - field and load slide rheostats ([slide-rheostat.md](devices/slide-rheostat.md))
+  - the supply console ([control-supply-console.md](devices/control-supply-console.md))
+  - the load switch ([load-switch.md](devices/load-switch.md))
+- Generator physics (`src/machines/dcGenerator.ts`, `src/electrical/solvers/machine-dc.ts`):
+  - the open-circuit curve, with residual magnetism and hysteresis
+  - E ∝ N
+  - self-excitation, with critical resistance and critical speed
+  - a reversed field that fails to build up
+  - load drop through Ra = 4 Ω plus armature reaction
+  - prime-mover droop
+  - all covered by `tests/generator.test.ts`.
+- Stand-ins until photos arrive:
+  - a prime-mover START/STOP and speed control on the set
+  - three DT-9205A meters for the sheets' 1 A, 0–300 V and 6–12 A meters
+
+Next: DCM 03–05 on the same bench, the DCM 01 rebuild on the M-G set, and wiring quality. Leads
+are drawn over device controls and can block them (the console START button), and that is the
+first fix.
+
 ## Priority: wiring first
 
 The most important thing is that students **connect the leads correctly and see them

@@ -30,6 +30,20 @@ a carrying handle on the left side. The back of the left side is open, and inter
 | Second switch       | Black square switch to the right of the socket block                                     |
 | Handle              | Chrome handle                                                                            |
 
+## Confirmed by the lab (21 Oct 2026)
+
+- The big knob sets a **DC voltage**.
+- On the side panel, the **left** sockets give **220 V** and the **middle** ones give **110 V**.
+- **All sockets are black.**
+- Not known: whether the console starts the prime mover, the front meters' ranges, and the
+  separate meters' looks.
+
+In the app (`supply-console-v1`): the knob's output is 0–220 V DC on the two posts beside the
+front voltmeter, and the front V and A meters read that output. The side block has 220 V DC
+(left column, + above −) and 110 V DC (middle column). START and STOP switch every output, and
+the yellow lamp shows mains and the red lamp shows outputs on. The other posts are drawn but dimmed
+until their use is known.
+
 ## What it most likely does (assumptions, **A**)
 
 This console is what the sheets call "**220 V D.C supply**", and it powers the prime mover.

@@ -77,16 +77,23 @@ const rheostat = (id: keyof typeof RHEOSTATS): EquipmentDefinition => {
       { key: 'B', label: 'B', x: 506, y: 140, color: 'black' },
     ],
     components: [
-      // Slider at the A end on delivery: A–C is the contact only, C–B the whole winding.
+      // Slider at the B end on delivery: A–C is the whole winding (the safe start for a field).
       {
         key: 'ac',
         kind: 'resistor',
         a: 'A',
         b: 'C',
+        resistanceOhms: ohms + SLIDER_CONTACT_OHMS,
+        section: true,
+      },
+      {
+        key: 'cb',
+        kind: 'resistor',
+        a: 'C',
+        b: 'B',
         resistanceOhms: SLIDER_CONTACT_OHMS,
         section: true,
       },
-      { key: 'cb', kind: 'resistor', a: 'C', b: 'B', resistanceOhms: ohms, section: true },
     ],
   };
 };

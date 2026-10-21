@@ -24,6 +24,7 @@ import { definitionOf, equipmentRegistry } from '../equipment/registry';
 import type { MeterSettings } from '../instruments/multimeter';
 import type { ScopeSettings } from '../instruments/oscilloscope';
 import { EquipmentBody, type ValueField } from './rendering/EquipmentBody';
+import { machineLabKinds } from './rendering/MachineLabEquipment';
 
 type Gesture =
   | { kind: 'wire'; start: ConnectionTarget; point: Point; origin: Point }
@@ -374,6 +375,10 @@ export function Workbench({
   const meterEquipment = new Set(
     bench.equipment.filter((e) => definitionOf(e).kind === 'multimeter').map((e) => e.id),
   );
+  // Machine-lab equipment has black knurled binding posts with labels printed on its panel.
+  const postEquipment = new Set(
+    bench.equipment.filter((e) => machineLabKinds.includes(definitionOf(e).kind)).map((e) => e.id),
+  );
   const faultTerminals = new Set(
     result.diagnostics.filter((d) => d.severity === 'fault').flatMap((d) => d.terminalIds),
   );
@@ -528,6 +533,7 @@ export function Workbench({
                 simulating={simulating}
                 scope={scopes?.[e.id]}
                 onScope={onScope}
+                onCommit={commit}
                 onDrag={(event, equipment) => {
                   if (mode === 'pan' || spaceHeld.current) return;
                   event.stopPropagation();
@@ -643,12 +649,23 @@ export function Workbench({
                       strokeDasharray="4 3"
                     />
                   )}
-                  <circle r="16" fill="#a8b2bb" stroke="#7e8a95" />
-                  <circle r="12" fill={cableColors[t.color]} stroke="#394137" strokeWidth=".7" />
-                  <circle r="6" fill="#1f271f" stroke="#909585" strokeWidth="1.5" />
-                  <text y="31" textAnchor="middle" className="terminal-label">
-                    {t.label}
-                  </text>
+                  {postEquipment.has(t.equipmentId) ? (
+                    <BindingPost small={/\.TG[12]$/.test(t.id)} />
+                  ) : (
+                    <>
+                      <circle r="16" fill="#a8b2bb" stroke="#7e8a95" />
+                      <circle
+                        r="12"
+                        fill={cableColors[t.color]}
+                        stroke="#394137"
+                        strokeWidth=".7"
+                      />
+                      <circle r="6" fill="#1f271f" stroke="#909585" strokeWidth="1.5" />
+                      <text y="31" textAnchor="middle" className="terminal-label">
+                        {t.label}
+                      </text>
+                    </>
+                  )}
                   {stackCount > 0 && (
                     <g transform="translate(25 -20)">
                       <rect x="-8" y="-9" width="17" height="16" rx="5" fill="#4e6985" />
@@ -813,5 +830,32 @@ export function Workbench({
         </div>
       </div>
     </section>
+  );
+}
+
+/** Black knurled 4 mm binding post seen from above (the small TG sockets are recessed). */
+function BindingPost({ small }: { small: boolean }) {
+  if (small)
+    return (
+      <>
+        <circle r="10" fill="#9aa1a6" stroke="#6c757b" />
+        <circle r="5.5" fill="#15181a" />
+      </>
+    );
+  return (
+    <>
+      <circle r="16" fill="#151719" stroke="#000" />
+      {Array.from({ length: 16 }, (_, i) => (
+        <path
+          key={i}
+          d="M0 -15.5V-11"
+          stroke="#5b6166"
+          strokeWidth="1.6"
+          transform={`rotate(${i * 22.5})`}
+        />
+      ))}
+      <circle r="10" fill="#202326" />
+      <circle r="5.5" fill="#050606" stroke="#3a3f43" />
+    </>
   );
 }

@@ -22,3 +22,9 @@ Slide rheostat specification: [docs/devices/slide-rheostat.md](../../docs/device
 | [control-supply-console.webp](control-supply-console.webp) | Control and power supply console: two analog meters, 0–100 dial knob, side panel with outlet, lamps, buttons, sockets |
 
 Console specification: [docs/devices/control-supply-console.md](../../docs/devices/control-supply-console.md). Only this one photo exists.
+
+| File                               | Content                                                                                       |
+| ---------------------------------- | --------------------------------------------------------------------------------------------- |
+| [load-switch.png](load-switch.png) | "LASTBRYTARE / LOAD SWITCH 380V ~ 16A" rotary switch box, three posts left, three posts right |
+
+Load switch specification: [docs/devices/load-switch.md](../../docs/devices/load-switch.md).

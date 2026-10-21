@@ -25,6 +25,7 @@ import { DeviceValue, ValueKnob } from './DeviceControls';
 import { Lamp, Load, MachineBox, MainsSupply, PanelMeter, Variac } from './NetworkEquipment';
 import type { ValueField } from '../../domain/models';
 import { decadeDials } from '../../equipment/lab';
+import { MachineLabArt, MachineLabBody, machineLabKinds } from './MachineLabEquipment';
 
 export interface LabProps {
   equipment: Equipment;
@@ -39,6 +40,8 @@ export interface LabProps {
   onPower(equipmentId: string): void;
   onValue(componentId: string, field: ValueField, value: number): void;
   onScope?(scopeId: string, settings: ScopeSettings): void;
+  /** Applies a device's own command (slider, rotary switch, machine controls) as one edit. */
+  onCommit?(change: (bench: Workbench) => Workbench): void;
 }
 
 const press = (action: () => void, label: string) => ({
@@ -92,6 +95,8 @@ export function LabEquipmentBody(props: LabProps) {
     lamp: <Lamp {...props} />,
     variac: <Variac {...props} />,
   };
+  if (machineLabKinds.includes(definition.kind))
+    art[definition.kind] = <MachineLabArt {...props} />;
   return (
     <g transform={`translate(${e.position.x} ${e.position.y})`} data-equipment={e.id}>
       <rect x="6" y="10" width={w} height={h} rx="10" fill="#1b2938" opacity=".14" />
@@ -126,6 +131,7 @@ export function LabEquipmentBody(props: LabProps) {
 }
 
 function Body({ kind, w, h }: { kind: string; w: number; h: number }) {
+  if (machineLabKinds.includes(kind)) return <MachineLabBody kind={kind} w={w} h={h} />;
   if (kind === 'bench-panel')
     return (
       <>
@@ -809,6 +815,7 @@ export const isLabKind = (kind: string) =>
     'dc-machine',
     'lamp',
     'variac',
+    ...machineLabKinds,
   ].includes(kind);
 
 const formatHz = (f: number) =>
