@@ -2,7 +2,10 @@ import type { MeterSettings } from '../instruments/multimeter';
 import type { MachineCircuit, MachineReading, MachineState } from '../machines/dcGenerator';
 import type { PolyphaseSupply } from '../electrical/circuit/polyphase';
 export interface ThreePhaseState {
+  /** Mains breaker closed, or inverter running. */
   on: boolean;
+  /** Inverter output frequency setting. */
+  hz?: number;
   /** Why the breaker last tripped, shown until it is switched on again. */
   trip?: string;
 }
@@ -175,7 +178,8 @@ export type EquipmentKind =
   | 'slide-rheostat'
   | 'supply-console'
   | 'load-switch'
-  | 'three-phase-supply';
+  | 'three-phase-supply'
+  | 'frequency-inverter';
 export interface TerminalTemplate {
   key: string;
   label: string;
@@ -374,6 +378,8 @@ export interface SimulationResult {
   machines?: Record<Id, MachineReading>;
   /** Three-phase supplies that see a short circuit (their breakers trip). */
   polyphaseShorts?: { supplyId: Id; between: string[] }[];
+  /** Supply frequency reaching each motor–generator set's prime mover. */
+  motorHz?: Record<Id, number>;
   /** Supplies whose motor protection sees locked-rotor current. */
   polyphaseOverloads?: { supplyId: Id; reason: string }[];
 }

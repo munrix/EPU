@@ -31,7 +31,7 @@ export function settleMachines(bench: Workbench): Workbench {
         threePhase: Object.fromEntries(
           Object.entries(current.threePhase ?? {}).map(([id, s]) => [
             id,
-            trips.has(id) ? { on: false, trip: trips.get(id) } : s,
+            trips.has(id) ? { ...s, on: false, trip: trips.get(id) } : s,
           ]),
         ),
       };

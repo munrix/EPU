@@ -53,9 +53,13 @@ export const benchSolver: SolverAdapter = {
     );
     const volts = new Map<string, number>();
     const motor = new Map<string, MotorOperatingPoint>();
+    // Sequence voltages per unit of the rated V/f at the supply frequency (mains or inverter).
     const runAt = (m: MachineCircuit, generatorTorque: number) => {
       const d = drive.get(m.equipmentId)!;
-      return steadyState(d.positive, d.negative, generatorTorque);
+      const hz = ac.motorHz[m.equipmentId] ?? 0;
+      if (hz < 0.5) return steadyState(0, 0, generatorTorque, 0);
+      const vf = hz / 50;
+      return steadyState(d.positive / vf, d.negative / vf, generatorTorque, hz);
     };
     machines.forEach((m) => {
       const point = runAt(m, 0);
@@ -144,7 +148,16 @@ export const benchSolver: SolverAdapter = {
         terminalIds: [],
       }),
     );
+    ac.starved.forEach((s) =>
+      diagnostics.push({
+        code: 'machine',
+        severity: 'warning',
+        message: `The frequency inverter is set to RUN but gives no output: ${s.reason.toLowerCase()}. Wire R, S, T to L1, L2, L3 and switch the breaker on.`,
+        terminalIds: [],
+      }),
+    );
     result.diagnostics.push(...diagnostics);
+    result.motorHz = ac.motorHz;
     readThreePhaseMeters(circuit, result, ac, machines, motor, drive);
     if (ac.shorts.length) result.polyphaseShorts = ac.shorts;
     if (overloads.length) result.polyphaseOverloads = overloads;

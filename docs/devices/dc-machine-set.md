@@ -131,3 +131,18 @@ it is wired, and nothing starts it except the wiring and the supply's breaker.
 an almost fixed speed. The sheets set 1400 rpm and vary the speed from 200 to 1500 rpm (sheet 3)
 and to 750 rpm (sheet 4). How does the lab change the prime mover's speed: a frequency
 inverter, a variable three-phase supply, or a different drive?
+
+## Speed control (23 Oct 2026, assumed)
+
+Sheets 3 and 4 need 200–1500 rpm and 750 rpm, and sheets 2, 4 and 5 need 1400 rpm. An induction
+motor on fixed 50 Hz turns at about 1490 rpm, so the bench has a **frequency inverter**
+(`frequency-inverter-v1`, marked "assumed" on its panel), wired between R S T and the motor:
+
+- **Wiring:** R, S, T → L1, L2, L3, then U, V, W → U1, V1, W1.
+- **Controls:** 0–55 Hz by knob or typed value, RUN and STOP. The speed is about 30 rpm per Hz:
+  47 Hz ≈ 1400 rpm, 25 Hz ≈ 750 rpm.
+- **Control law:** V/f is held constant up to 50 Hz, so the motor keeps its torque at every speed.
+- **Input fault:** with a phase missing at its input, it gives no output and the bench says why.
+
+**?** Replace it when the lab's real speed control is known (it may be a different drive, a
+variable supply, or a DC prime mover).

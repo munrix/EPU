@@ -4,13 +4,27 @@ import { magnitude, phasor, type Phasor } from '../../machines/inductionMotor';
 import { DisjointSet } from '../connectivity/buildCircuit';
 import { solveLinearSystem } from '../solvers/linear-dc';
 
-/** A three-phase R S T N supply on the bench (380 V line, 220 V phase, 50 Hz). */
+/**
+ * A three-phase source on the bench: the R S T N mains (380 V line, 220 V phase, 50 Hz), or a
+ * frequency inverter's U V W output, which is live only while its L1 L2 L3 input sees three
+ * different live phases.
+ */
 export interface PolyphaseSupply {
   equipmentId: string;
   on: boolean;
-  /** Terminal IDs of R, S, T and N. */
-  terminals: { R: string; S: string; T: string; N: string };
+  hz: number;
+  outputs: { name: string; terminalId: string; volts: number; degrees: number }[];
+  /** An inverter's input sockets: all three must be on distinct live phases. */
+  inputs?: string[];
 }
+/** The lab's R S T N mains outputs. */
+export const mainsOutputs = (id: string): PolyphaseSupply['outputs'] =>
+  (['R', 'S', 'T', 'N'] as const).map((name) => ({
+    name,
+    terminalId: `${id}.${name}`,
+    volts: name === 'N' ? 0 : PHASE_VOLTS,
+    degrees: PHASE_ANGLE[name],
+  }));
 /** A motor's six terminal-box sockets; windings run U1–U2, V1–V2, W1–W2. */
 export interface MotorTerminals {
   equipmentId: string;
@@ -31,6 +45,10 @@ export interface PolyphaseResult {
   windings: Record<string, [Phasor, Phasor, Phasor]>;
   /** Supplies with two of their outputs joined by a solid path while switched on. */
   shorts: { supplyId: string; between: string[] }[];
+  /** Supply frequency reaching each motor (0 if none). */
+  motorHz: Record<string, number>;
+  /** Inverters set to RUN whose input does not see three live phases, with the reason. */
+  starved: { supplyId: string; reason: string }[];
   /** AC voltage of a socket on the three-phase side, or null if it is not part of it. */
   voltageAt(terminalId: string): Phasor | null;
   /**
@@ -63,7 +81,9 @@ export function solvePolyphase(
   const group = (terminalId: string) => solid.find(circuit.terminalToNode[terminalId]);
   const side = (terminalId: string) => base.find(circuit.terminalToNode[terminalId]);
   const acGroups = new Set([
-    ...supplies.flatMap((s) => Object.values(s.terminals).map(group)),
+    ...supplies.flatMap((s) =>
+      [...s.outputs.map((o) => o.terminalId), ...(s.inputs ?? [])].map(group),
+    ),
     ...motors.flatMap((m) => [m.U1, m.V1, m.W1, m.U2, m.V2, m.W2].map(group)),
   ]);
   const currentInto: PolyphaseResult['currentInto'] = (terminalId, windingAmps) => {
@@ -84,31 +104,48 @@ export function solvePolyphase(
     return sum;
   };
 
-  // Known voltages: every output of a supply that is on. A group reached by two different
-  // outputs is a short circuit.
+  // Known voltages: every output of a supply that is on, mains first, then inverters whose input
+  // is healthy. A group reached by two different outputs is a short circuit.
   const known = new Map<string, Phasor>();
   const owner = new Map<string, string>();
   const shorts: PolyphaseResult['shorts'] = [];
-  for (const s of supplies) {
-    if (!s.on) continue;
+  const starved: PolyphaseResult['starved'] = [];
+  const energize = (s: PolyphaseSupply) => {
     const seen = new Map<string, string>();
-    for (const phase of ['R', 'S', 'T', 'N'] as const) {
-      const g = group(s.terminals[phase]);
+    for (const o of s.outputs) {
+      const g = group(o.terminalId);
       if (seen.has(g) || (owner.has(g) && owner.get(g) !== s.equipmentId)) {
-        shorts.push({ supplyId: s.equipmentId, between: [seen.get(g) ?? 'another supply', phase] });
+        shorts.push({
+          supplyId: s.equipmentId,
+          between: [seen.get(g) ?? 'another supply', o.name],
+        });
         continue;
       }
-      seen.set(g, phase);
+      seen.set(g, o.name);
       owner.set(g, s.equipmentId);
-      // N is the star point of the supply: 0 V.
-      known.set(g, phasor(phase === 'N' ? 0 : PHASE_VOLTS, PHASE_ANGLE[phase]));
+      known.set(g, phasor(o.volts, o.degrees));
     }
+  };
+  supplies.filter((s) => s.on && !s.inputs).forEach(energize);
+  for (const s of supplies.filter((x) => x.on && x.inputs)) {
+    const fed = s.inputs!.map((t) => known.get(group(t)));
+    const live = fed.filter((v): v is Phasor => !!v && magnitude(v) > 1);
+    const distinct = new Set(s.inputs!.map(group)).size === 3;
+    if (live.length === 3 && distinct) energize(s);
+    else
+      starved.push({
+        supplyId: s.equipmentId,
+        reason: `Input sees ${live.length} of 3 live phases${distinct ? '' : ' (two inputs share a phase)'}`,
+      });
   }
+  const hzOf = new Map(supplies.map((s) => [s.equipmentId, s.hz]));
   // A supply with a short has tripped: the solution below would be meaningless.
   if (shorts.length)
     return {
       windings: zeroWindings(motors),
       shorts,
+      starved,
+      motorHz: Object.fromEntries(motors.map((m) => [m.equipmentId, 0])),
       voltageAt: (t) => (acGroups.has(group(t)) ? { re: 0, im: 0 } : null),
       currentInto: () => ({ re: 0, im: 0 }),
     };
@@ -170,6 +207,15 @@ export function solvePolyphase(
       ]),
     ),
     shorts,
+    starved,
+    // The frequency of whichever source the motor's windings reach.
+    motorHz: Object.fromEntries(
+      motors.map((m) => {
+        const root = reach.find(group(m.U1));
+        const source = [...owner.entries()].find(([g]) => reach.find(g) === root)?.[1];
+        return [m.equipmentId, source ? (hzOf.get(source) ?? 0) : 0];
+      }),
+    ),
     voltageAt: (t) => (acGroups.has(group(t)) ? v(group(t)) : null),
     currentInto,
   };

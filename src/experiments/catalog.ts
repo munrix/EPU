@@ -38,6 +38,7 @@ import {
 import type { ExperimentDefinition, ExperimentTable, StepContext } from './types';
 import { makeBench } from './bench';
 import { generatorOcc } from './generator';
+import { generatorCritical, generatorLoad, generatorSpeed } from './generatorSheets';
 export { makeBench };
 
 const SP = 'supply.positive',
@@ -1213,6 +1214,9 @@ export const experiments: ExperimentDefinition[] = [
   singlePhasePower,
   dcMachineTerminals,
   generatorOcc,
+  generatorSpeed,
+  generatorCritical,
+  generatorLoad,
   firstCircuit,
   measuringCurrent,
   seriesDivider,

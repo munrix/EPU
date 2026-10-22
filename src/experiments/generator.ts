@@ -8,6 +8,7 @@ import {
   LOAD_RHEOSTAT_ID,
   LOAD_SWITCH_ID,
   MG_SET_ID,
+  INVERTER_ID,
   SWITCH_OPEN_OHMS,
   THREE_PHASE_ID,
 } from '../equipment/machineLab';
@@ -35,6 +36,7 @@ export function generatorBench(experimentId: string): Workbench {
       instantiateEquipment(MG_SET_ID, 'mg', { x: 40, y: 520 }),
       instantiateEquipment(CONSOLE_ID, 'console', { x: 1080, y: 540 }),
       instantiateEquipment(THREE_PHASE_ID, 'rst', { x: 660, y: 236 }),
+      instantiateEquipment(INVERTER_ID, 'vfd', { x: 320, y: 236 }),
     ],
     'dca-20',
     'epu-lab',
@@ -48,14 +50,34 @@ export function generatorBench(experimentId: string): Workbench {
   };
 }
 
-const machine = (c: StepContext) => c.result.machines?.mg;
-/**
- * The set runs at the induction motor's speed, fixed by the 50 Hz supply (about 1490 rpm with
- * the generator unloaded). The sheets' 1400 rpm needs a speed control the photos do not show,
- * so any steady forward running speed is accepted and recorded with each reading.
- */
-const atRatedSpeed = (c: StepContext) =>
-  machine(c)?.motorStatus === 'running' && (machine(c)?.rpm ?? 0) > 0.9 * GENERATOR.ratedRpm;
+export const machine = (c: StepContext) => c.result.machines?.mg;
+export const running = (c: StepContext) =>
+  machine(c)?.motorStatus === 'running' && (machine(c)?.rpm ?? 0) > 0;
+/** The set turning forward within ±tolerance of a speed, as read on the speed meter. */
+export const speedNear = (c: StepContext, rpm: number, tolerance = 15) =>
+  running(c) && Math.abs((machine(c)?.rpm ?? 0) - rpm) <= tolerance;
+/** The sheets' rated speed, 1400 rpm, set with the inverter (about 47 Hz unloaded). */
+const atRatedSpeed = (c: StepContext) => speedNear(c, GENERATOR.ratedRpm);
+
+/** What still stops the prime mover turning, from the supply and inverter state. */
+export function primeMoverPending(c: StepContext): string | null {
+  if (!c.bench.threePhase?.rst?.on) return 'Switch on the R S T breaker.';
+  if (!c.bench.threePhase?.vfd?.on) return 'Press RUN on the frequency inverter.';
+  if (!running(c))
+    return 'The prime mover is not turning: check R S T → L1 L2 L3 and U V W → U1 V1 W1, with W2–U2–V2 linked.';
+  return null;
+}
+const speedPending = (c: StepContext, rpm: number) =>
+  primeMoverPending(c) ??
+  (speedNear(c, rpm)
+    ? null
+    : `Set the inverter so the speed meter reads ${rpm} rpm (now ${Math.round(machine(c)?.rpm ?? 0)}).`);
+export const consoleOn = (c: StepContext) =>
+  c.bench.components.some((p) => p.id === 'console.dc220' && p.kind === 'dc-source' && p.enabled);
+export const switchOpen = (c: StepContext) =>
+  c.bench.components.some(
+    (p) => p.id === 'sw.pole1' && p.kind === 'resistor' && p.resistanceOhms > 1,
+  );
 
 /**
  * How the shunt field is fed, judged from the wiring alone: from the console (separately
@@ -188,7 +210,7 @@ export const generatorOcc: ExperimentDefinition = {
       check: (c) => armatureVolts(c) !== null,
     },
     {
-      text: 'Prime mover: link W2–U2–V2 in its terminal box (star), then R → U1, S → V1, T → W1 (through the load switch poles if you like). Switch the R S T breaker on.',
+      text: 'Prime mover: link W2–U2–V2 in its terminal box (star); R, S, T → inverter L1, L2, L3; inverter U, V, W → U1, V1, W1. Breaker on, inverter RUN, and set 1400 rpm on the speed meter (about 47 Hz).',
       hint: 'Star, because each winding is rated 220 V and R S T is 380 V between lines. Turning backwards? Swap two phases. Humming? A phase is missing.',
       check: atRatedSpeed,
     },
@@ -237,13 +259,8 @@ export const generatorOcc: ExperimentDefinition = {
       tableIds: ['A-noload', 'A-loop'],
       connected: (c) => excitationMode(c, true) === 'separate',
       pending: (c) =>
-        !c.bench.threePhase?.rst?.on
-          ? 'Switch on the R S T breaker to run the prime mover.'
-          : !c.bench.components.some(
-                (p) => p.id === 'console.dc220' && p.kind === 'dc-source' && p.enabled,
-              )
-            ? 'Press START on the console to feed the field.'
-            : null,
+        speedPending(c, GENERATOR.ratedRpm) ??
+        (consoleOn(c) ? null : 'Press START on the console to feed the field.'),
     },
     {
       id: 'B',
@@ -255,15 +272,12 @@ export const generatorOcc: ExperimentDefinition = {
       tableIds: ['B-noload', 'B-loop'],
       connected: (c) => excitationMode(c, true) === 'self',
       pending: (c) =>
-        !c.bench.threePhase?.rst?.on
-          ? 'Switch on the R S T breaker to run the prime mover.'
-          : c.bench.components.some(
-                (p) => p.id === 'sw.pole1' && p.kind === 'resistor' && p.resistanceOhms > 1,
-              )
-            ? 'Turn the load switch to I to close the field circuit.'
-            : (armatureVolts(c) ?? 0) < 50
-              ? 'No build-up yet: slide the field rheostat towards A (below the critical resistance).'
-              : null,
+        speedPending(c, GENERATOR.ratedRpm) ??
+        (switchOpen(c)
+          ? 'Turn the load switch to I to close the field circuit.'
+          : (armatureVolts(c) ?? 0) < 50
+            ? 'No build-up yet: slide the field rheostat towards A (below the critical resistance).'
+            : null),
     },
   ],
   presets: [
@@ -271,22 +285,22 @@ export const generatorOcc: ExperimentDefinition = {
       id: 'part-a',
       title: 'Part A · figure (1), separately excited',
       description:
-        '220 V DC + → field rheostat A–C → ammeter (20A) → F1, F2 → 220 V DC −; voltmeter on A1–A2; prime mover in star on R S T.',
+        '220 V DC + → field rheostat A–C → ammeter (20A) → F1, F2 → 220 V DC −; voltmeter on A1–A2; prime mover in star on R S T through the inverter.',
       build: () => separatelyExcitedPreset(generatorBench('dcm-occ')),
     },
     {
       id: 'part-b',
       title: 'Part B · figure (1), self-excited',
       description:
-        'A1 → switch (poles 1–2) → field rheostat A–C → ammeter (20A) → F1, F2 → A2; voltmeter on A1–A2; prime mover in star on R S T.',
+        'A1 → switch (poles 1–2) → field rheostat A–C → ammeter (20A) → F1, F2 → A2; voltmeter on A1–A2; prime mover in star on R S T through the inverter.',
       build: () => selfExcitedPreset(generatorBench('dcm-occ')),
     },
   ],
   createBench: () => generatorBench('dcm-occ'),
 };
 
-type Lead = [from: string, to: string, color?: CableColor];
-const wireAll = (bench: Workbench, prefix: string, leads: Lead[]) =>
+export type Lead = [from: string, to: string, color?: CableColor];
+export const wireAll = (bench: Workbench, prefix: string, leads: Lead[]) =>
   leads.reduce(
     (b, [from, to, color = 'red'], i) =>
       connectCable(
@@ -298,15 +312,18 @@ const wireAll = (bench: Workbench, prefix: string, leads: Lead[]) =>
       ),
     bench,
   );
-/** Prime mover in star (W2–U2–V2 linked), fed R → U1, S → V1, T → W1. */
-const primeMover: Lead[] = [
+/** Prime mover in star (W2–U2–V2 linked), fed from R S T through the inverter. */
+export const primeMover: Lead[] = [
   ['mg.W2', 'mg.U2', 'black'],
   ['mg.U2', 'mg.V2', 'black'],
-  ['rst.R', 'mg.U1'],
-  ['rst.S', 'mg.V1', 'yellow'],
-  ['rst.T', 'mg.W1', 'green'],
+  ['rst.R', 'vfd.L1'],
+  ['rst.S', 'vfd.L2', 'yellow'],
+  ['rst.T', 'vfd.L3', 'green'],
+  ['vfd.U', 'mg.U1'],
+  ['vfd.V', 'mg.V1', 'yellow'],
+  ['vfd.W', 'mg.W1', 'green'],
 ];
-const voltmeter: Lead[] = [
+export const voltmeter: Lead[] = [
   ['mg.A1', 'meter2.V'],
   ['mg.A2', 'meter2.COM', 'black'],
 ];

@@ -30,7 +30,7 @@ and B).
 - Stand-ins until photos arrive:
   - three DT-9205A meters for the sheets' 1 A, 0–300 V and 6–12 A meters
 
-Next: DCM 03–05 on the same bench, the DCM 01 rebuild on the M-G set, and wiring quality. Leads
+Since then: DCM 03, 04 and 05 on the same bench, each with an A/B excitation switch, presets and labelled tables, and a frequency inverter (assumed) for speed. Next, the DCM 01 rebuild on the M-G set, and wiring quality. Leads
 are drawn over device controls and can block them (the console START button), and that is the
 first fix.
 

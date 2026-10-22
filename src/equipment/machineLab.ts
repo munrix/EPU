@@ -242,7 +242,42 @@ export const threePhaseSupply: EquipmentDefinition = {
   components: [],
 };
 
+/**
+ * Frequency inverter (variable-speed drive) for the prime mover. The sheets vary the generator
+ * speed from 200 to 1500 rpm, which a 50 Hz induction motor cannot do on its own; how the lab
+ * really does it is not known yet, so this is an assumed, generic V/f drive: L1 L2 L3 in from
+ * R S T, U V W out to the motor, 0–55 Hz, RUN / STOP.
+ */
+export const INVERTER_ID = 'frequency-inverter-v1';
+export const INVERTER_DEFAULT_HZ = 47;
+export const INVERTER_MAX_HZ = 55;
+export const frequencyInverter: EquipmentDefinition = {
+  id: INVERTER_ID,
+  name: 'Frequency inverter (assumed)',
+  kind: 'frequency-inverter',
+  size: { width: 300, height: 270 },
+  limits: {},
+  terminals: [
+    ...(['L1', 'L2', 'L3'] as const).map((key, i) => ({
+      key,
+      label: key,
+      x: 60 + i * 90,
+      y: 46,
+      color: 'black' as const,
+    })),
+    ...(['U', 'V', 'W'] as const).map((key, i) => ({
+      key,
+      label: key,
+      x: 60 + i * 90,
+      y: 226,
+      color: 'black' as const,
+    })),
+  ],
+  components: [],
+};
+
 export const machineLabEquipment = [
+  frequencyInverter,
   mgSet,
   fieldRheostat,
   loadRheostat,

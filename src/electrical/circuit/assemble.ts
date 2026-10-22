@@ -5,7 +5,8 @@ import { oscilloscopeModel } from '../../instruments/oscilloscope';
 import { buildCircuit } from '../connectivity/buildCircuit';
 import { MAINS_BREAKER_AMPS } from '../../equipment/network';
 import { defaultMachineState, GENERATOR, type MachineCircuit } from '../../machines/dcGenerator';
-import type { PolyphaseSupply } from './polyphase';
+import { mainsOutputs, PHASE_VOLTS, type PolyphaseSupply } from './polyphase';
+import { INVERTER_DEFAULT_HZ } from '../../equipment/machineLab';
 
 /**
  * Solver-neutral circuit for the whole bench: physical nets plus the electrical models of
@@ -28,11 +29,30 @@ export function assembleCircuit(bench: Workbench): ElectricalCircuit {
   for (const equipment of bench.equipment) {
     const kind = definitionOf(equipment).kind;
     if (kind === 'three-phase-supply') {
-      const pin = (k: 'R' | 'S' | 'T' | 'N') => `${equipment.id}.${k}`;
       polyphase.push({
         equipmentId: equipment.id,
         on: bench.threePhase?.[equipment.id]?.on ?? false,
-        terminals: { R: pin('R'), S: pin('S'), T: pin('T'), N: pin('N') },
+        hz: 50,
+        outputs: mainsOutputs(equipment.id),
+      });
+      continue;
+    }
+    if (kind === 'frequency-inverter') {
+      // V/f control: output voltage rises with frequency up to 380 V line at 50 Hz.
+      const state = bench.threePhase?.[equipment.id] ?? { on: false, hz: INVERTER_DEFAULT_HZ };
+      const hz = state.hz ?? INVERTER_DEFAULT_HZ;
+      const pin = (k: string) => `${equipment.id}.${k}`;
+      polyphase.push({
+        equipmentId: equipment.id,
+        on: state.on && hz > 0,
+        hz,
+        outputs: (['U', 'V', 'W'] as const).map((name, i) => ({
+          name,
+          terminalId: pin(name),
+          volts: PHASE_VOLTS * Math.min(1, hz / 50),
+          degrees: [0, -120, 120][i],
+        })),
+        inputs: [pin('L1'), pin('L2'), pin('L3')],
       });
       continue;
     }

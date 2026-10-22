@@ -36,7 +36,7 @@ function run(
       b = wire(b, `sw.${2 * i + 2}`, to, `f${i}b`);
     } else b = wire(b, from, to, `f${i}`);
   });
-  return { ...b, threePhase: { rst: { on: true } } };
+  return { ...b, threePhase: { ...b.threePhase, rst: { on: true } } };
 }
 const closeSwitch = (b: Workbench): Workbench => ({
   ...b,
@@ -101,6 +101,25 @@ function selfExcited(rheostatOhms: number, reversed = false) {
   b = wire(b, 'mg.A1', 'meter2.V', 'l5');
   b = wire(b, 'mg.A2', 'meter2.COM', 'l6', 'black');
   return slider(b, 'rf', rheostatOhms);
+}
+
+/** Turns the inverter's frequency until the set runs at the given speed, as a student would. */
+export function setSpeed(b: Workbench, rpm: number): Workbench {
+  let lo = 1,
+    hi = 55,
+    best = b;
+  for (let i = 0; i < 30; i++) {
+    const hz = (lo + hi) / 2;
+    best = {
+      ...b,
+      threePhase: { ...b.threePhase, vfd: { on: true, hz: Math.round(hz * 100) / 100 } },
+    };
+    const now = solved(best).m.rpm;
+    if (Math.abs(now - rpm) < 1) break;
+    if (now < rpm) lo = hz;
+    else hi = hz;
+  }
+  return best;
 }
 
 describe('generator bench', () => {
@@ -323,7 +342,8 @@ describe('generator bench', () => {
 
   describe('presets: the sheet’s figure (1), wired', () => {
     const preset = (id: string) => generatorOcc.presets!.find((p) => p.id === id)!.build();
-    const supplies = (b: Workbench) => ({ ...consoleOn(b), threePhase: { rst: { on: true } } });
+    const supplies = (b: Workbench) =>
+      setSpeed({ ...consoleOn(b), threePhase: { ...b.threePhase, rst: { on: true } } }, 1400);
 
     it('both presets load, persist, and leave every supply off', () => {
       for (const id of ['part-a', 'part-b']) {
@@ -340,7 +360,7 @@ describe('generator bench', () => {
       const { ctx, m } = solved(b);
       expect(excitationMode(ctx)).toBe('separate');
       expect(ctx.meter('meter').value).toBeCloseTo(0.5, 2);
-      expect(armature(b)).toBeGreaterThan(250);
+      expect(armature(b)).toBeCloseTo(risingOcc(0.5), -1);
       expect(m.motorStatus).toBe('running');
       const passed = generatorOcc.steps.slice(0, 3).map((s) => s.check(ctx));
       expect(passed).toEqual([true, true, true]);

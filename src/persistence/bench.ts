@@ -107,7 +107,13 @@ const schema = z.object({
     )
     .optional(),
   threePhase: z
-    .record(z.object({ on: z.boolean(), trip: z.string().max(300).optional() }))
+    .record(
+      z.object({
+        on: z.boolean(),
+        trip: z.string().max(300).optional(),
+        hz: finite.min(0).max(60).optional(),
+      }),
+    )
     .optional(),
 });
 
@@ -302,7 +308,7 @@ export function parseBench(raw: unknown): Workbench {
     ? Object.fromEntries(sets.map((id) => [id, bench.machines?.[id] ?? defaultMachineState]))
     : undefined;
   const supplies = bench.equipment
-    .filter((e) => definitionOf(e).kind === 'three-phase-supply')
+    .filter((e) => ['three-phase-supply', 'frequency-inverter'].includes(definitionOf(e).kind))
     .map((e) => e.id);
   if (Object.keys(bench.threePhase ?? {}).some((id) => !supplies.includes(id)))
     throw new Error('Supply state does not match the three-phase supplies on the bench.');

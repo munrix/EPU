@@ -55,14 +55,30 @@ export function sequences(u: Phasor, v: Phasor, w: Phasor) {
   };
 }
 
-/** Kloss torque at slip s for rated voltage, N·m (positive drives towards synchronous speed). */
-const kloss = (s: number) =>
-  s === 0 ? 0 : (2 * BREAKDOWN_TORQUE) / (s / BREAKDOWN_SLIP + BREAKDOWN_SLIP / s);
+/**
+ * Kloss torque for a slip speed (rpm below synchronous) at rated V/f, N·m. With V/f held, as an
+ * inverter does, the breakdown torque and the slip speed at which it occurs stay the same at
+ * every frequency: the curve just moves with the synchronous speed.
+ */
+const BREAKDOWN_SLIP_RPM = BREAKDOWN_SLIP * SYNC_RPM;
+const kloss = (slipRpm: number) =>
+  slipRpm === 0
+    ? 0
+    : (2 * BREAKDOWN_TORQUE) / (slipRpm / BREAKDOWN_SLIP_RPM + BREAKDOWN_SLIP_RPM / slipRpm);
+export const syncRpm = (hz: number) => (120 * hz) / MOTOR.poles;
 
-/** Motor torque at a forward speed (rpm) for the given sequence voltages. */
-export function motorTorque(rpm: number, positive: number, negative: number): number {
-  const s = 1 - rpm / SYNC_RPM;
-  return positive ** 2 * kloss(s) - negative ** 2 * kloss(2 - s);
+/**
+ * Motor torque at a forward speed (rpm) for the given sequence voltages, each per unit of the
+ * rated V/f at the supply frequency.
+ */
+export function motorTorque(
+  rpm: number,
+  positive: number,
+  negative: number,
+  hz: number = MOTOR.hz,
+): number {
+  const sync = syncRpm(hz);
+  return positive ** 2 * kloss(sync - rpm) - negative ** 2 * kloss(sync + rpm);
 }
 
 export type MotorStatus = 'off' | 'running' | 'humming' | 'stalled';
@@ -82,28 +98,31 @@ export function steadyState(
   positive: number,
   negative: number,
   generatorTorque: number,
+  hz: number = MOTOR.hz,
 ): MotorOperatingPoint {
-  if (positive < 0.05 && negative < 0.05) return { rpm: 0, status: 'off', lineAmps: 0 };
+  if ((positive < 0.05 && negative < 0.05) || hz < 0.5)
+    return { rpm: 0, status: 'off', lineAmps: 0 };
   const forward = positive >= negative;
   const [p, n] = forward ? [positive, negative] : [negative, positive];
   const load = (rpm: number) => MOTOR.frictionNm + MOTOR.viscousNmPerRpm * rpm + generatorTorque;
   const locked = MOTOR.lockedRotorRatio * MOTOR.ratedAmps * Math.max(p, n);
   // Starting torque must overcome friction (the generator gives no torque at rest).
-  if (motorTorque(0, p, n) <= MOTOR.frictionNm)
+  if (motorTorque(0, p, n, hz) <= MOTOR.frictionNm)
     return { rpm: 0, status: p - n < 0.05 ? 'humming' : 'stalled', lineAmps: locked };
   // Search the stable branch, from synchronous speed down to breakdown, for torque balance.
-  const breakdownRpm = SYNC_RPM * (1 - BREAKDOWN_SLIP);
-  let lo = Math.max(0, breakdownRpm),
-    hi = SYNC_RPM;
-  if (motorTorque(lo, p, n) < load(lo)) return { rpm: 0, status: 'stalled', lineAmps: locked };
+  const sync = syncRpm(hz);
+  let lo = Math.max(0, sync - BREAKDOWN_SLIP_RPM),
+    hi = sync;
+  if (motorTorque(lo, p, n, hz) < load(lo)) return { rpm: 0, status: 'stalled', lineAmps: locked };
   for (let i = 0; i < 60; i++) {
     const mid = (lo + hi) / 2;
-    if (motorTorque(mid, p, n) >= load(mid)) lo = mid;
+    if (motorTorque(mid, p, n, hz) >= load(mid)) lo = mid;
     else hi = mid;
   }
   const rpm = lo;
-  const slip = 1 - rpm / SYNC_RPM;
+  const slipRpm = sync - rpm;
   // Line current rises with slip from about 40 % (magnetizing) at no load, scaled by voltage.
-  const lineAmps = MOTOR.ratedAmps * p * Math.hypot(0.4, (slip / RATED_SLIP) * 0.9) * (1 + n);
+  const lineAmps =
+    MOTOR.ratedAmps * p * Math.hypot(0.4, (slipRpm / (RATED_SLIP * SYNC_RPM)) * 0.9) * (1 + n);
   return { rpm: forward ? rpm : -rpm, status: 'running', lineAmps };
 }

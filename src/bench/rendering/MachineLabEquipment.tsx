@@ -2,6 +2,8 @@ import { useRef, useState, type PointerEvent, type ReactNode } from 'react';
 import type { Workbench } from '../../domain/models';
 import { definitionOf, equipmentComponents } from '../../equipment/registry';
 import {
+  INVERTER_DEFAULT_HZ,
+  INVERTER_MAX_HZ,
   MG_PANEL,
   MOTOR_BOX,
   MOTOR_BOX_AT,
@@ -22,6 +24,7 @@ export const machineLabKinds = [
   'supply-console',
   'load-switch',
   'three-phase-supply',
+  'frequency-inverter',
 ];
 
 const press = (action: () => void, label: string) => ({
@@ -68,6 +71,7 @@ export function MachineLabArt(props: LabProps): ReactNode {
   if (kind === 'supply-console') return <SupplyConsole {...props} />;
   if (kind === 'load-switch') return <LoadSwitch {...props} />;
   if (kind === 'three-phase-supply') return <ThreePhaseSupply {...props} />;
+  if (kind === 'frequency-inverter') return <FrequencyInverter {...props} />;
   return null;
 }
 
@@ -1031,5 +1035,122 @@ function PolarityMark({ x, y, sign, ink }: { x: number; y: number; sign: '+' | '
     >
       {sign}
     </text>
+  );
+}
+
+/** Frequency inverter (assumed): L1 L2 L3 in, U V W out, frequency set by knob or typed. */
+function FrequencyInverter({ equipment: e, bench, result, onCommit }: LabProps) {
+  const state = bench.threePhase?.[e.id] ?? { on: false, hz: INVERTER_DEFAULT_HZ };
+  const hz = state.hz ?? INVERTER_DEFAULT_HZ;
+  const set = (change: { on?: boolean; hz?: number }) =>
+    onCommit?.((b) => {
+      const now = b.threePhase?.[e.id] ?? { on: false, hz: INVERTER_DEFAULT_HZ };
+      const next = { ...now, ...change };
+      if (change.on) delete next.trip;
+      return { ...b, threePhase: { ...b.threePhase, [e.id]: next } };
+    });
+  const starved =
+    state.on && result.diagnostics.some((d) => /frequency inverter is set to RUN/.test(d.message));
+  const display = !state.on ? 'STOP' : starved ? 'no In' : `${hz.toFixed(1)}`;
+  return (
+    <g>
+      <g pointerEvents="none">
+        <rect x="8" y="8" width="284" height="254" rx="6" fill="#d9dcde" stroke="#8d969b" />
+        {(['L1', 'L2', 'L3'] as const).map((k, i) => (
+          <text
+            key={k}
+            x={60 + i * 90}
+            y="82"
+            textAnchor="middle"
+            fontSize="12"
+            fontWeight="800"
+            fill="#1f2326"
+          >
+            {k}
+          </text>
+        ))}
+        <text x="150" y="22" textAnchor="middle" fontSize="8.5" fill="#3d474e">
+          INPUT · from R S T
+        </text>
+        {(['U', 'V', 'W'] as const).map((k, i) => (
+          <text
+            key={k}
+            x={60 + i * 90}
+            y="200"
+            textAnchor="middle"
+            fontSize="12"
+            fontWeight="800"
+            fill="#1f2326"
+          >
+            {k}
+          </text>
+        ))}
+        <text x="150" y="256" textAnchor="middle" fontSize="8.5" fill="#3d474e">
+          OUTPUT · to motor U1 V1 W1
+        </text>
+        <rect x="24" y="96" width="132" height="44" rx="4" fill="#1d2a22" />
+        <text
+          x="146"
+          y="128"
+          textAnchor="end"
+          fontFamily="var(--mono)"
+          fontSize="24"
+          fill={state.on && !starved ? '#7ef0a0' : '#4f6b58'}
+          data-testid={`${e.id}-display`}
+        >
+          {display}
+        </text>
+        <text x="26" y="154" fontSize="8.5" fill="#3d474e">
+          Hz · INVERTER (assumed)
+        </text>
+        {state.trip && !state.on && (
+          <text x="150" y="172" textAnchor="middle" fontSize="8.5" fontWeight="700" fill="#b8321f">
+            {state.trip.length > 52 ? `${state.trip.slice(0, 50)}…` : state.trip}
+            <title>{state.trip}</title>
+          </text>
+        )}
+      </g>
+      <ValueKnob
+        x={204}
+        y={118}
+        small
+        label="Inverter frequency (Hz)"
+        value={hz}
+        min={0}
+        max={INVERTER_MAX_HZ}
+        step={0.1}
+        onChange={(v) => set({ hz: Math.round(v * 10) / 10 })}
+      />
+      <DeviceValue
+        x={170}
+        y={158}
+        width={76}
+        label="Inverter frequency"
+        value={hz}
+        unit="Hz"
+        min={0}
+        max={INVERTER_MAX_HZ}
+        onChange={(v) => set({ hz: Math.round(v * 10) / 10 })}
+      />
+      <g {...press(() => set({ on: true }), 'Inverter RUN')} className="power-switch">
+        <rect
+          x="250"
+          y="98"
+          width="34"
+          height="22"
+          rx="4"
+          fill={state.on ? '#2f7a4a' : '#22272b'}
+        />
+        <text x="267" y="113" textAnchor="middle" fontSize="9" fill="#fff">
+          RUN
+        </text>
+      </g>
+      <g {...press(() => set({ on: false }), 'Inverter STOP')} className="power-switch">
+        <rect x="250" y="126" width="34" height="22" rx="4" fill="#c2382f" />
+        <text x="267" y="141" textAnchor="middle" fontSize="9" fill="#fff">
+          STOP
+        </text>
+      </g>
+    </g>
   );
 }
