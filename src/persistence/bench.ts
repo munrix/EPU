@@ -363,7 +363,18 @@ export function loadBench(experimentId: string): Workbench | null {
     const raw = localStorage.getItem(benchKey(experimentId));
     if (raw) {
       const bench = parseBench(JSON.parse(raw));
-      return bench.experimentId === experimentId ? bench : null;
+      if (bench.experimentId !== experimentId) return null;
+      // A lab station whose equipment has changed since it was saved starts afresh, so a new
+      // device (for example the R S T supply) is never missing from an old save.
+      const experiment = experimentById(experimentId);
+      if (experiment?.station) {
+        // By kind, so DCM 01's randomly chosen machine wiring still counts as the same bench.
+        const kinds = (b: Workbench) => b.equipment.map((e) => definitionOf(e).kind);
+        const expected = kinds(experiment.createBench());
+        const saved = kinds(bench);
+        if (expected.sort().join() !== saved.sort().join()) return null;
+      }
+      return bench;
     }
     const legacy = experimentId === 'dc-foundations' ? localStorage.getItem(LEGACY_KEY) : null;
     return legacy ? parseBench(JSON.parse(legacy)) : null;
