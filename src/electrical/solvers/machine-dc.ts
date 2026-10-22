@@ -13,12 +13,14 @@ import {
   type MachineReading,
 } from '../../machines/dcGenerator';
 import {
+  magnitude,
   MOTOR,
+  phasor,
   sequences,
   steadyState,
   type MotorOperatingPoint,
 } from '../../machines/inductionMotor';
-import { solvePolyphase, windingVolts } from '../circuit/polyphase';
+import { solvePolyphase, windingVolts, type PolyphaseResult } from '../circuit/polyphase';
 import { linearDcSolver } from './linear-dc';
 
 const MAX_ITERATIONS = 800;
@@ -143,6 +145,7 @@ export const benchSolver: SolverAdapter = {
       }),
     );
     result.diagnostics.push(...diagnostics);
+    readThreePhaseMeters(circuit, result, ac, machines, motor, drive);
     if (ac.shorts.length) result.polyphaseShorts = ac.shorts;
     if (overloads.length) result.polyphaseOverloads = overloads;
     return result;
@@ -177,4 +180,70 @@ function withMachines(
       return v === undefined ? c : { ...c, voltageVolts: v };
     }),
   };
+}
+
+/**
+ * Multimeters on the three-phase side. That side is solved as phasors, not as waveforms, so a
+ * meter whose leads are both on it gets its RMS value here: AC volts between any two sockets,
+ * and the line current through an ammeter in a motor lead. Its DC value is 0, as on a real
+ * meter set to DC across AC.
+ */
+function readThreePhaseMeters(
+  circuit: ElectricalCircuit,
+  result: SimulationResult,
+  ac: PolyphaseResult,
+  machines: MachineCircuit[],
+  motor: Map<string, MotorOperatingPoint>,
+  drive: Map<string, { positive: number; negative: number }>,
+) {
+  // Winding currents: in phase with the winding voltage less the motor's power-factor angle,
+  // scaled so the line current matches the operating point.
+  const windingAmps = Object.fromEntries(
+    machines.map((m) => {
+      const point = motor.get(m.equipmentId)!;
+      const d = drive.get(m.equipmentId)!;
+      const perUnit = Math.max(d.positive, d.negative);
+      const scale = perUnit > 0.05 ? point.lineAmps / (perUnit * MOTOR.windingVolts) : 0;
+      return [
+        m.equipmentId,
+        ac.windings[m.equipmentId].map((v) =>
+          phasor(magnitude(v) * scale, (Math.atan2(v.im, v.re) * 180) / Math.PI - 40),
+        ),
+      ];
+    }),
+  );
+  const stats = (rms: number) => ({
+    mean: 0,
+    rms,
+    acMeanAbs: (rms * 2 * Math.SQRT2) / Math.PI,
+    min: -rms * Math.SQRT2,
+    max: rms * Math.SQRT2,
+  });
+  const overridden = new Set<string>();
+  const ohmmeters = new Set(
+    circuit.components.filter((c) => c.id.endsWith('.ohm-source')).map((c) => c.id),
+  );
+  for (const m of circuit.measurements) {
+    // An ohmmeter measures with its own DC test current, which the DC solve already gives.
+    if (ohmmeters.has(`${m.equipmentId}.ohm-source`)) continue;
+    if (m.kind === 'voltage') {
+      const a = ac.voltageAt(m.positiveTerminalId),
+        b = ac.voltageAt(m.negativeTerminalId);
+      if (!a || !b) continue;
+      const rms = magnitude({ re: a.re - b.re, im: a.im - b.im });
+      result.measurements[m.id] = { value: 0, status: 'valid', stats: stats(rms) };
+      overridden.add(m.positiveTerminalId).add(m.negativeTerminalId);
+    } else {
+      const shunt = circuit.components.find((c) => c.id === m.componentId);
+      if (shunt?.kind !== 'resistor' || !ac.voltageAt(shunt.a)) continue;
+      const rms = Math.max(
+        magnitude(ac.currentInto(shunt.a, windingAmps)),
+        magnitude(ac.currentInto(shunt.b, windingAmps)),
+      );
+      result.measurements[m.id] = { value: 0, status: 'valid', stats: stats(rms) };
+    }
+  }
+  result.diagnostics = result.diagnostics.filter(
+    (d) => d.code !== 'floating-meter' || !d.terminalIds.some((t) => overridden.has(t)),
+  );
 }

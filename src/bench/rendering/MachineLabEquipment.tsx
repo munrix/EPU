@@ -535,6 +535,25 @@ function SlideRheostat({ equipment: e, bench, result, onCommit }: LabProps) {
           fill="#9aa2a7"
           stroke="#6f777c"
         />
+        {(
+          [
+            ['A', 34, 176],
+            ['B', 506, 176],
+            ['C', 34, 18],
+          ] as const
+        ).map(([label, x, y]) => (
+          <text
+            key={label}
+            x={x}
+            y={y}
+            textAnchor="middle"
+            fontSize="13"
+            fontWeight="800"
+            fill="#1f2326"
+          >
+            {label}
+          </text>
+        ))}
         <rect x="196" y="88" width="148" height="30" rx="3" fill="#e9ebec" stroke="#8f979c" />
         <text x="270" y="108" textAnchor="middle" fontSize="12" fontWeight="700" fill="#2b3236">
           {spec.name.toUpperCase()}
@@ -706,9 +725,16 @@ function SupplyConsole({ equipment: e, bench, circuit, result, onPower, onValue 
       >
         A-METER
       </text>
-      <text x="46" y="68" textAnchor="middle" className="scope-print" pointerEvents="none">
-        0–220 V
-      </text>
+      <g pointerEvents="none">
+        <text x="46" y="60" textAnchor="middle" fontSize="11" fontWeight="700" fill="#1f2326">
+          0–220 V
+        </text>
+        <text x="46" y="72" textAnchor="middle" fontSize="9" fontWeight="700" fill="#1f2326">
+          DC
+        </text>
+        <PolarityMark x={20} y={92} sign="+" ink="#1f2326" />
+        <PolarityMark x={20} y={140} sign="−" ink="#1f2326" />
+      </g>
       {post(46, 214, 'Not used by the generator sheets; its function is not known yet.')}
       {post(46, 262, 'Not used by the generator sheets; its function is not known yet.')}
       <g transform="translate(200 382)">
@@ -817,14 +843,17 @@ function SupplyConsole({ equipment: e, bench, circuit, result, onPower, onValue 
       </g>
       <g pointerEvents="none">
         <text x="492" y="222" textAnchor="middle" fontSize="11" fontWeight="700" fill="#fff">
-          220 V
+          220 V DC
         </text>
         <text x="560" y="222" textAnchor="middle" fontSize="11" fontWeight="700" fill="#fff">
-          110 V
+          110 V DC
         </text>
-        <text x="526" y="238" textAnchor="middle" fontSize="9" fill="#dbe6ef">
-          DC
-        </text>
+        {[466, 534].map((x) => (
+          <g key={x}>
+            <PolarityMark x={x} y={262} sign="+" ink="#ffffff" />
+            <PolarityMark x={x} y={310} sign="−" ink="#ffffff" />
+          </g>
+        ))}
         <rect x="612" y="250" width="40" height="40" rx="4" fill="#1f2326" />
         <path d="M676 300V430" stroke="#d7dde1" strokeWidth="8" strokeLinecap="round" />
       </g>
@@ -983,5 +1012,21 @@ function ThreePhaseSupply({ equipment: e, bench, onCommit }: LabProps) {
         </text>
       </g>
     </g>
+  );
+}
+
+/** A printed + or − beside a socket: these panels' posts are all black, so polarity is printed. */
+function PolarityMark({ x, y, sign, ink }: { x: number; y: number; sign: '+' | '−'; ink: string }) {
+  return (
+    <text
+      x={x}
+      y={y + 6}
+      textAnchor="middle"
+      fontSize="18"
+      fontWeight="800"
+      fill={sign === '+' ? '#d23a2e' : ink}
+    >
+      {sign}
+    </text>
   );
 }

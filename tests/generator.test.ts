@@ -8,7 +8,7 @@ import { stepContext } from '../src/experiments/context';
 import { excitationMode, generatorOcc } from '../src/experiments/generator';
 import { GENERATOR, risingOcc } from '../src/machines/dcGenerator';
 import { parseBench } from '../src/persistence/bench';
-import { wire } from './helpers';
+import { setMeter, wire } from './helpers';
 
 const base = () => generatorOcc.createBench();
 /** Prime mover in star on R S T, breaker on. Options make the classic wiring mistakes. */
@@ -256,5 +256,68 @@ describe('generator bench', () => {
     const { result } = solved(base());
     // (Unwired multimeters report "floating", as on every bench.)
     expect(result.diagnostics.filter((d) => d.code !== 'floating-meter')).toEqual([]);
+  });
+
+  describe('the multimeters on this bench', () => {
+    const meter = (b: Workbench, id = 'meter2') => solved(b).ctx.meter(id);
+    const across = (b: Workbench, a: string, c: string, rangeId: string) =>
+      setMeter(
+        wire(wire(b, a, 'meter2.V', 'p1'), c, 'meter2.COM', 'p2', 'black'),
+        { rangeId },
+        'meter2',
+      );
+
+    it('DC V: the console’s 220 V, 110 V and knob outputs', () => {
+      const b = consoleOn(base());
+      expect(meter(across(b, 'console.P220', 'console.N220', 'dc-1000')).value).toBeCloseTo(220, 0);
+      expect(meter(across(b, 'console.P110', 'console.N110', 'dc-1000')).value).toBeCloseTo(110, 0);
+      const knob = {
+        ...b,
+        components: b.components.map((c) =>
+          c.id === 'console.var' && c.kind === 'dc-source' ? { ...c, voltageVolts: 150 } : c,
+        ),
+      };
+      expect(meter(across(knob, 'console.VP', 'console.VN', 'dc-1000')).value).toBeCloseTo(150, 0);
+      // Leads reversed: the meter shows the minus sign, as the real one does.
+      expect(meter(across(b, 'console.N220', 'console.P220', 'dc-1000')).value).toBeCloseTo(
+        -220,
+        0,
+      );
+    });
+
+    it('AC V: 380 V between R S T, 220 V to N, 0 with the breaker off', () => {
+      const b = { ...base(), threePhase: { rst: { on: true } } };
+      expect(meter(across(b, 'rst.R', 'rst.S', 'acv-700')).value).toBeCloseTo(380, -1);
+      expect(meter(across(b, 'rst.T', 'rst.N', 'acv-700')).value).toBeCloseTo(220, 0);
+      const off = { ...b, threePhase: { rst: { on: false } } };
+      expect(meter(across(off, 'rst.R', 'rst.S', 'acv-700')).value).toBe(0);
+    });
+
+    it('AC V: each prime-mover winding in star sees 220 V', () => {
+      expect(meter(across(run(base()), 'mg.U1', 'mg.U2', 'acv-700')).value).toBeCloseTo(220, 0);
+    });
+
+    it('AC A: an ammeter in a motor line reads the line current', () => {
+      // R → 20A, COM → U1 instead of R → U1 directly.
+      let b = run(base());
+      b = {
+        ...b,
+        cables: b.cables.filter((c) => c.id !== 'f0'),
+        plugs: b.plugs.filter((p) => p.cableId !== 'f0'),
+      };
+      b = wire(wire(b, 'rst.R', 'meter3.20A', 'a1'), 'meter3.COM', 'mg.U1', 'a2');
+      b = setMeter(b, { rangeId: 'aca-20' }, 'meter3');
+      const { m } = solved(b);
+      expect(m.motorStatus).toBe('running');
+      const amps = meter(b, 'meter3').value!;
+      expect(amps).toBeGreaterThan(0.5);
+      expect(amps).toBeCloseTo(m.motorAmps, 1);
+    });
+
+    it('Ω: windings and fields with everything off', () => {
+      expect(meter(across(base(), 'mg.U1', 'mg.U2', 'ohm-200')).value).toBeCloseTo(7, 0);
+      expect(meter(across(base(), 'mg.F1', 'mg.F2', 'ohm-2k')).value).toBeCloseTo(250, 0);
+      expect(meter(across(base(), 'mg.A1', 'mg.A2', 'ohm-200')).value).toBeCloseTo(4, 0);
+    });
   });
 });

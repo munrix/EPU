@@ -31,6 +31,13 @@ export interface PolyphaseResult {
   windings: Record<string, [Phasor, Phasor, Phasor]>;
   /** Supplies with two of their outputs joined by a solid path while switched on. */
   shorts: { supplyId: string; between: string[] }[];
+  /** AC voltage of a socket on the three-phase side, or null if it is not part of it. */
+  voltageAt(terminalId: string): Phasor | null;
+  /**
+   * AC current flowing from a socket's side into the motor windings, for an ammeter in a line.
+   * Winding currents are given per motor as U, V, W (start → finish).
+   */
+  currentInto(terminalId: string, windingAmps: Record<string, Phasor[]>): Phasor;
 }
 
 /**
@@ -45,10 +52,37 @@ export function solvePolyphase(
   motors: MotorTerminals[],
 ): PolyphaseResult {
   const solid = new DisjointSet();
+  // The same, without meter shunts: the two sides of an ammeter, for its current.
+  const base = new DisjointSet();
   for (const c of circuit.components)
-    if (c.kind === 'resistor' && isActive(c) && c.resistanceOhms < SOLID_OHMS)
+    if (c.kind === 'resistor' && isActive(c) && c.resistanceOhms < SOLID_OHMS) {
       solid.union(circuit.terminalToNode[c.a], circuit.terminalToNode[c.b]);
+      if (c.origin !== 'instrument')
+        base.union(circuit.terminalToNode[c.a], circuit.terminalToNode[c.b]);
+    }
   const group = (terminalId: string) => solid.find(circuit.terminalToNode[terminalId]);
+  const side = (terminalId: string) => base.find(circuit.terminalToNode[terminalId]);
+  const acGroups = new Set([
+    ...supplies.flatMap((s) => Object.values(s.terminals).map(group)),
+    ...motors.flatMap((m) => [m.U1, m.V1, m.W1, m.U2, m.V2, m.W2].map(group)),
+  ]);
+  const currentInto: PolyphaseResult['currentInto'] = (terminalId, windingAmps) => {
+    const at = side(terminalId);
+    const sum = { re: 0, im: 0 };
+    for (const m of motors)
+      [
+        [m.U1, m.U2],
+        [m.V1, m.V2],
+        [m.W1, m.W2],
+      ].forEach(([start, finish], i) => {
+        const amps = windingAmps[m.equipmentId]?.[i];
+        if (!amps) return;
+        const sign = (side(start) === at ? 1 : 0) - (side(finish) === at ? 1 : 0);
+        sum.re += sign * amps.re;
+        sum.im += sign * amps.im;
+      });
+    return sum;
+  };
 
   // Known voltages: every output of a supply that is on. A group reached by two different
   // outputs is a short circuit.
@@ -66,11 +100,18 @@ export function solvePolyphase(
       }
       seen.set(g, phase);
       owner.set(g, s.equipmentId);
-      known.set(g, phasor(PHASE_VOLTS, PHASE_ANGLE[phase]));
+      // N is the star point of the supply: 0 V.
+      known.set(g, phasor(phase === 'N' ? 0 : PHASE_VOLTS, PHASE_ANGLE[phase]));
     }
   }
   // A supply with a short has tripped: the solution below would be meaningless.
-  if (shorts.length) return { windings: zeroWindings(motors), shorts };
+  if (shorts.length)
+    return {
+      windings: zeroWindings(motors),
+      shorts,
+      voltageAt: (t) => (acGroups.has(group(t)) ? { re: 0, im: 0 } : null),
+      currentInto: () => ({ re: 0, im: 0 }),
+    };
 
   // Windings as unit admittances between groups.
   const edges: [string, string][] = motors.flatMap((m) => [
@@ -129,6 +170,8 @@ export function solvePolyphase(
       ]),
     ),
     shorts,
+    voltageAt: (t) => (acGroups.has(group(t)) ? v(group(t)) : null),
+    currentInto,
   };
 }
 
