@@ -116,10 +116,11 @@ function occColumn(c: StepContext, mode: 'separate' | 'self', loop: boolean): st
   if (i === null || armatureVolts(c) === null || !atRatedSpeed(c)) return null;
   const nominal = UP.find((v) => Math.abs(Number(v) - i) <= 0.012);
   if (nominal === undefined) return null;
-  if (!loop) return nominal;
-  if (nominal === '0.6') return '0.6';
   const m = machine(c)!;
   const falling = m.excitationAmps < (c.bench.machines?.mg?.peakFieldAmps ?? 0) - 0.01;
+  // Table 1 is the no-load curve taken with If rising; readings on the way down belong to table 2.
+  if (!loop) return falling ? null : nominal;
+  if (nominal === '0.6') return '0.6';
   return `${nominal} ${falling ? '↓' : '↑'}`;
 }
 const occRows = [
@@ -141,6 +142,7 @@ const occTables = (mode: 'separate' | 'self', part: string): ExperimentTable[] =
     columns: UP,
     column: (c) => occColumn(c, mode, false),
     rows: occRows,
+    note: 'Taken with If rising (record it on the way up, together with the first half of table 2).',
   },
   {
     id: `${part}-loop`,

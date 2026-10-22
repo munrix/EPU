@@ -603,7 +603,8 @@ function SlideRheostat({ equipment: e, bench, result, onCommit }: LabProps) {
           setPreview(null);
         }}
         onKeyDown={(ev) => {
-          const step = ev.shiftKey ? 0.1 : 0.01;
+          // Fine (Alt) steps let the field current be set to the sheet's values near the low end.
+          const step = ev.shiftKey ? 0.1 : ev.altKey ? 0.001 : 0.01;
           if (ev.key === 'ArrowRight' || ev.key === 'ArrowUp') set(position + step);
           else if (ev.key === 'ArrowLeft' || ev.key === 'ArrowDown') set(position - step);
           else return;
@@ -611,7 +612,9 @@ function SlideRheostat({ equipment: e, bench, result, onCommit }: LabProps) {
           ev.stopPropagation();
         }}
       >
-        <title>Drag the slider along the rail (arrow keys: 1 %, with Shift: 10 %)</title>
+        <title>
+          Drag the slider along the rail (arrow keys: 1 %, with Shift: 10 %, with Alt: 0.1 %)
+        </title>
         <rect
           x="-20"
           y="-16"
