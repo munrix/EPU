@@ -3,18 +3,26 @@ import type { Workbench } from '../../domain/models';
 import { definitionOf, equipmentComponents } from '../../equipment/registry';
 import {
   MG_PANEL,
+  MOTOR_BOX,
+  MOTOR_BOX_AT,
   RHEOSTATS,
   sectionOhms,
   sliderPosition,
   SWITCH_CLOSED_OHMS,
   SWITCH_OPEN_OHMS,
 } from '../../equipment/machineLab';
-import { defaultMachineState, GENERATOR, type MachineState } from '../../machines/dcGenerator';
+import { defaultMachineState, type MachineState } from '../../machines/dcGenerator';
 import { DeviceValue, ValueKnob } from './DeviceControls';
 import type { LabProps } from './LabEquipment';
 
 /** Equipment of the DC machine lab, drawn from the photos in references/machine-lab. */
-export const machineLabKinds = ['mg-set', 'slide-rheostat', 'supply-console', 'load-switch'];
+export const machineLabKinds = [
+  'mg-set',
+  'slide-rheostat',
+  'supply-console',
+  'load-switch',
+  'three-phase-supply',
+];
 
 const press = (action: () => void, label: string) => ({
   role: 'button',
@@ -59,6 +67,7 @@ export function MachineLabArt(props: LabProps): ReactNode {
   if (kind === 'slide-rheostat') return <SlideRheostat {...props} />;
   if (kind === 'supply-console') return <SupplyConsole {...props} />;
   if (kind === 'load-switch') return <LoadSwitch {...props} />;
+  if (kind === 'three-phase-supply') return <ThreePhaseSupply {...props} />;
   return null;
 }
 
@@ -78,11 +87,24 @@ function MgSet({ equipment: e, bench, result, onCommit }: LabProps) {
   const rpm = reading?.rpm ?? 0;
   const commit = (change: Partial<MachineState>) => onCommit?.(setMachine(e.id, change));
   const P = MG_PANEL;
-  // Speed meter: 0–30 (×100 r/min) over a 140° arc. In the MOTOR position the needle is driven
-  // the wrong way for a generator and rests on its zero stop.
-  const reads = state.meterMode === 'generator' ? Math.min(3000, rpm) : 0;
-  const needle = 200 + (reads / 3000) * 140;
-  const spin = rpm > 1 ? Math.max(0.12, 240 / rpm) : 0;
+  const B = MOTOR_BOX_AT;
+  // Speed meter: 0–30 (×100 r/min) over a 140° arc, fed by the tachogenerator. The toggle sets
+  // its polarity: GENERATOR reads the forward direction, MOTOR the reverse. Driven the wrong way,
+  // the needle rests on its zero stop.
+  const forward = state.meterMode === 'generator' ? rpm : -rpm;
+  const needle = 200 + (Math.min(3000, Math.max(0, forward)) / 3000) * 140;
+  const spin = Math.abs(rpm) > 1 ? Math.max(0.12, 240 / Math.abs(rpm)) : 0;
+  const status = reading?.motorStatus ?? 'off';
+  const volts = reading?.windingVolts ?? [0, 0, 0];
+  const motorWarning = status === 'humming' || status === 'stalled' || Math.max(...volts) > 253;
+  const motorText =
+    status === 'running'
+      ? `${rpm < 0 ? 'Running backwards' : 'Running'} · ${Math.abs(Math.round(rpm))} rpm`
+      : status === 'humming'
+        ? 'Humming, not turning'
+        : status === 'stalled'
+          ? 'Stalled'
+          : 'Stopped (no supply)';
   const blue = '#5f86a8',
     blueDark = '#486d8e';
   return (
@@ -132,7 +154,7 @@ function MgSet({ equipment: e, bench, result, onCommit }: LabProps) {
               attributeName="transform"
               type="rotate"
               from="0"
-              to="360"
+              to={rpm < 0 ? '-360' : '360'}
               dur={`${spin}s`}
               repeatCount="indefinite"
             />
@@ -174,18 +196,53 @@ function MgSet({ equipment: e, bench, result, onCommit }: LabProps) {
           stroke="#36597a"
           strokeWidth="2"
         />
-        <rect x="660" y="30" width="150" height="46" rx="5" fill={blueDark} />
-        {[0, 1, 2].map((i) => (
-          <g key={i}>
-            <circle cx={692 + i * 44} cy="44" r="7" fill="#1e2124" />
-            <circle cx={692 + i * 44} cy="64" r="7" fill="#1e2124" />
-          </g>
-        ))}
-        <text x="747" y="22" textAnchor="middle" className="scope-print">
-          PRIME MOVER · supplied internally (wiring not photographed)
+        {/* Rating plate (values assumed: the real plate is not photographed) */}
+        <rect x="700" y="196" width="136" height="44" rx="2" fill="#e4e1d6" stroke="#9e9a8c" />
+        <text x="768" y="210" textAnchor="middle" fontSize="8" fontWeight="700" fill="#2a2a2a">
+          3~ MOTOR · 50 Hz · 1.1 kW
+        </text>
+        <text x="768" y="222" textAnchor="middle" fontSize="8" fill="#2a2a2a">
+          Δ 220 V / Y 380 V · 4.5 / 2.6 A
+        </text>
+        <text x="768" y="234" textAnchor="middle" fontSize="8" fill="#2a2a2a">
+          1400 r/min (assumed)
         </text>
       </g>
 
+      {/* Prime-mover terminal box: W2 U2 V2 behind, U1 V1 W1 in front */}
+      <g pointerEvents="none">
+        <rect
+          x={B.x}
+          y={B.y}
+          width={B.width}
+          height={B.height}
+          rx="6"
+          fill="#53789b"
+          stroke="#36597a"
+          strokeWidth="2"
+        />
+        <rect
+          x={B.x + 12}
+          y={B.y + 8}
+          width={B.width - 24}
+          height={B.height - 16}
+          rx="3"
+          fill="#3f6283"
+        />
+        {MOTOR_BOX.map(([key, x, y]) => (
+          <text
+            key={key}
+            x={x - 20}
+            y={y + 4}
+            textAnchor="end"
+            fontSize="11"
+            fontWeight="700"
+            fill="#f3f6f8"
+          >
+            {key}
+          </text>
+        ))}
+      </g>
       {/* Terminal panel on the front of the bed */}
       <rect
         x={P.x}
@@ -375,68 +432,27 @@ function MgSet({ equipment: e, bench, result, onCommit }: LabProps) {
           MADE IN SWEDEN
         </text>
       </g>
-      {/* Prime-mover control. The real speed control is not photographed: this is a stand-in. */}
-      <g transform={`translate(${P.x + 680} ${P.y + 16})`}>
-        <rect
-          width="200"
-          height="118"
-          rx="6"
-          fill="#eef1f2"
-          stroke="#6f7a81"
-          strokeDasharray="5 3"
-        />
-        <text x="10" y="16" fontSize="10" fontWeight="700" fill="#33414c">
-          PRIME MOVER SPEED (stand-in)
+      {/* Prime-mover state, as you would hear and see it on the bench */}
+      <g transform={`translate(${P.x + 680} ${P.y + 18})`} pointerEvents="none">
+        <rect width="214" height="86" rx="5" fill="#eef1f2" stroke="#9aa3a9" />
+        <text x="10" y="18" fontSize="10" fontWeight="700" fill="#33414c">
+          PRIME MOVER
         </text>
-        <g
-          {...press(() => commit({ running: true }), 'Start the prime mover')}
-          className="power-switch"
+        <text
+          x="10"
+          y="38"
+          fontSize="12"
+          fontWeight="700"
+          fill={motorWarning ? '#b8321f' : '#22313c'}
+          data-testid={`${e.id}-motor`}
         >
-          <rect
-            x="10"
-            y="26"
-            width="52"
-            height="24"
-            rx="4"
-            fill={state.running ? '#2f7a4a' : '#22272b'}
-          />
-          <text x="36" y="42" textAnchor="middle" fontSize="10" fill="#fff">
-            START
-          </text>
-        </g>
-        <g
-          {...press(() => commit({ running: false }), 'Stop the prime mover')}
-          className="power-switch"
-        >
-          <rect x="10" y="56" width="52" height="24" rx="4" fill="#c2382f" />
-          <text x="36" y="72" textAnchor="middle" fontSize="10" fill="#fff">
-            STOP
-          </text>
-        </g>
-        <ValueKnob
-          x={94}
-          y={58}
-          small
-          label="Prime mover speed setting (rpm)"
-          value={state.speedSetRpm}
-          min={0}
-          max={GENERATOR.maxRpm}
-          step={10}
-          onChange={(v) => commit({ speedSetRpm: v })}
-        />
-        <DeviceValue
-          x={124}
-          y={44}
-          width={86}
-          label="Speed setting"
-          value={state.speedSetRpm}
-          unit="rpm"
-          min={0}
-          max={GENERATOR.maxRpm}
-          onChange={(v) => commit({ speedSetRpm: v })}
-        />
-        <text x="10" y="106" fontSize="9" fill="#4c5a64">
-          {state.running ? 'running' : 'stopped'} · set {state.speedSetRpm} rpm
+          {motorText}
+        </text>
+        <text x="10" y="56" fontSize="9" fill="#4c5a64">
+          Windings U V W: {volts.map((v) => `${Math.round(v)}`).join(' / ')} V
+        </text>
+        <text x="10" y="72" fontSize="9" fill="#4c5a64">
+          Fed from R S T through its terminal box (top right)
         </text>
       </g>
     </g>
@@ -889,6 +905,83 @@ function LoadSwitch({ equipment: e, bench, onCommit }: LabProps) {
       <text x="130" y="224" textAnchor="middle" className="scope-print" pointerEvents="none">
         {closed ? 'I · closed' : '0 · open'}
       </text>
+    </g>
+  );
+}
+
+/** Three-phase R S T N outlet panel with a three-pole breaker and phase lamps. */
+function ThreePhaseSupply({ equipment: e, bench, onCommit }: LabProps) {
+  const state = bench.threePhase?.[e.id] ?? { on: false };
+  const toggle = () =>
+    onCommit?.((b) => ({
+      ...b,
+      threePhase: { ...b.threePhase, [e.id]: { on: !state.on } },
+    }));
+  const lamps: [string, string][] = [
+    ['R', '#e2463a'],
+    ['S', '#f0c22f'],
+    ['T', '#3f9a5a'],
+  ];
+  return (
+    <g>
+      <g pointerEvents="none">
+        <rect x="8" y="8" width="404" height="234" rx="4" fill="#c9cdd0" stroke="#8d969b" />
+        <text x="24" y="34" fontSize="13" fontWeight="700" fill="#22292e">
+          3~ 380 V · 50 Hz
+        </text>
+        <text x="24" y="50" fontSize="9" fill="#3d474e">
+          R S T: 380 V between lines, 220 V to N
+        </text>
+        {lamps.map(([label, color], i) => (
+          <g key={label} transform={`translate(${70 + i * 92} 104)`}>
+            <circle r="14" fill={state.on ? color : '#5b5f62'} stroke="#2c3033" strokeWidth="2" />
+            {state.on && <circle r="22" fill={color} opacity=".25" />}
+            <text y="-22" textAnchor="middle" fontSize="11" fontWeight="700" fill="#22292e">
+              {label}
+            </text>
+          </g>
+        ))}
+        {(['R', 'S', 'T', 'N'] as const).map((k, i) => (
+          <text
+            key={k}
+            x={70 + i * 92}
+            y="234"
+            textAnchor="middle"
+            fontSize="12"
+            fontWeight="700"
+            fill="#22292e"
+          >
+            {k}
+          </text>
+        ))}
+        {state.trip && !state.on && (
+          <text x="210" y="148" textAnchor="middle" fontSize="9" fontWeight="700" fill="#b8321f">
+            {state.trip.length > 70 ? `${state.trip.slice(0, 68)}…` : state.trip}
+            <title>{state.trip}</title>
+          </text>
+        )}
+      </g>
+      {/* Three-pole miniature breaker */}
+      <g
+        transform="translate(318 22)"
+        {...press(toggle, state.on ? 'Three-phase breaker off' : 'Three-phase breaker on')}
+        className="power-switch"
+      >
+        <title>{state.trip && !state.on ? `Tripped: ${state.trip}` : 'Three-pole breaker'}</title>
+        <rect width="80" height="62" rx="4" fill="#f1f1ee" stroke="#9a9d98" />
+        <rect x="26" y="12" width="28" height="38" rx="3" fill="#d9dbd6" />
+        <rect
+          x="30"
+          y={state.on ? 14 : 30}
+          width="20"
+          height="18"
+          rx="2"
+          fill={state.on ? '#2f7a4a' : '#22272b'}
+        />
+        <text x="40" y="58" textAnchor="middle" fontSize="8" fill="#333">
+          {state.on ? 'I · ON' : state.trip ? 'TRIPPED' : '0 · OFF'}
+        </text>
+      </g>
     </g>
   );
 }

@@ -27,8 +27,16 @@ export function makeBench(
   };
 }
 const machinesFor = (instances: EquipmentInstance[]) => {
-  const sets = instances.filter((i) => definitionOf(i.equipment).kind === 'mg-set');
-  return sets.length
-    ? { machines: Object.fromEntries(sets.map((i) => [i.equipment.id, defaultMachineState])) }
-    : {};
+  const ids = (kind: string) =>
+    instances.filter((i) => definitionOf(i.equipment).kind === kind).map((i) => i.equipment.id);
+  const sets = ids('mg-set'),
+    supplies = ids('three-phase-supply');
+  return {
+    ...(sets.length
+      ? { machines: Object.fromEntries(sets.map((id) => [id, defaultMachineState])) }
+      : {}),
+    ...(supplies.length
+      ? { threePhase: Object.fromEntries(supplies.map((id) => [id, { on: false }])) }
+      : {}),
+  };
 };

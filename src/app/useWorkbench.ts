@@ -94,6 +94,7 @@ export function useWorkbench() {
     terminals: bench.terminals.map((t) => t.id),
     internalLinks: bench.internalLinks,
     machines: bench.machines,
+    threePhase: bench.threePhase,
     cables: bench.cables.map((c) => c.plugIds),
     plugs: bench.plugs.map((p) => ({
       id: p.id,

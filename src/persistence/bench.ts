@@ -3,7 +3,7 @@ import type { Component, ValueField, Workbench } from '../domain/models';
 import { definitionOf, equipmentRegistry, instantiateEquipment } from '../equipment/registry';
 import { defaultMeterSettings, meterRanges, migrateRangeId } from '../instruments/multimeter';
 import { defaultExperiment, experimentById } from '../experiments/catalog';
-import { defaultMachineState, GENERATOR } from '../machines/dcGenerator';
+import { defaultMachineState } from '../machines/dcGenerator';
 
 const id = z.string().min(1).max(160);
 const finite = z.number().finite();
@@ -101,12 +101,13 @@ const schema = z.object({
   machines: z
     .record(
       z.object({
-        running: z.boolean(),
-        speedSetRpm: finite.min(0).max(GENERATOR.maxRpm),
         peakFieldAmps: finite.min(0).max(10),
         meterMode: z.enum(['motor', 'generator']),
       }),
     )
+    .optional(),
+  threePhase: z
+    .record(z.object({ on: z.boolean(), trip: z.string().max(300).optional() }))
     .optional(),
 });
 
@@ -300,6 +301,14 @@ export function parseBench(raw: unknown): Workbench {
   const machines = sets.length
     ? Object.fromEntries(sets.map((id) => [id, bench.machines?.[id] ?? defaultMachineState]))
     : undefined;
+  const supplies = bench.equipment
+    .filter((e) => definitionOf(e).kind === 'three-phase-supply')
+    .map((e) => e.id);
+  if (Object.keys(bench.threePhase ?? {}).some((id) => !supplies.includes(id)))
+    throw new Error('Supply state does not match the three-phase supplies on the bench.');
+  const threePhase = supplies.length
+    ? Object.fromEntries(supplies.map((id) => [id, bench.threePhase?.[id] ?? { on: false }]))
+    : undefined;
   const experiment = experimentById(bench.experimentId);
   if (!experiment || experiment.profileId !== bench.profileId)
     throw new Error('This file is for an experiment this version does not provide.');
@@ -341,6 +350,7 @@ export function parseBench(raw: unknown): Workbench {
     components,
     internalLinks,
     ...(machines ? { machines } : {}),
+    ...(threePhase ? { threePhase } : {}),
   };
 }
 

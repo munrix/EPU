@@ -98,3 +98,36 @@ single-pole switch, variable load. See the plan,
 3. Is the speed meter wired to TG inside the panel?
 4. Close-up of the prime-mover terminal box (labels on the 6 sockets).
 5. Photos of the supply, rheostat, meters, switch and load used for experiments 2–5.
+
+## Prime mover in the app (22 Oct 2026)
+
+The lab confirms the prime mover runs from an **R S T** supply. In the app it now runs only when
+it is wired, and nothing starts it except the wiring and the supply's breaker.
+
+- **Terminal box on top of the motor:** six sockets in the IEC layout, **W2 U2 V2** behind and
+  **U1 V1 W1** in front (windings U1–U2, V1–V2, W1–W2). The labels on the real box are not
+  photographed (**?**).
+- **Assumed rating plate:** 3~, 50 Hz, 1.1 kW, Δ 220 V / Y 380 V, 4.5 / 2.6 A, 1400 r/min, 4 poles.
+  On 380 V R S T it must be connected in **star** (link W2–U2–V2).
+- **Three-phase supply** (`three-phase-supply-v1`): R S T N sockets, 380 V between lines and 220 V
+  to N, phase lamps, and a three-pole breaker. Where R S T really are on the bench is not known
+  (**?**), so it is its own panel. The load switch can sit between R S T and the motor.
+- **What the wiring does, computed from the winding voltages** (`src/electrical/circuit/polyphase.ts`,
+  `src/machines/inductionMotor.ts`):
+  - Star on R S T: runs forward at about 1490 rpm unloaded. Generator load slows it, following
+    the motor's torque–speed curve.
+  - Two phases swapped: runs backwards, so the generator's EMF reverses. The speed meter then
+    reads only with its switch at MOTOR.
+  - Delta on 380 V: each winding sees 381 V instead of 220 V, and a warning asks for star.
+  - A phase missing: no starting torque, so the motor hums, and its locked-rotor current trips
+    the breaker.
+  - A lead between two of R S T N: short circuit, and the breaker trips.
+  - A winding reversed, or the star point left open: handled the same way, from the winding
+    voltages.
+- **Speed meter switch:** GENERATOR reads forward rotation and MOTOR reads reverse. Driven the
+  wrong way, the needle rests on its zero stop.
+
+**Open question (decides sheets 3 and 4):** an induction motor on a fixed 50 Hz supply runs at
+an almost fixed speed. The sheets set 1400 rpm and vary the speed from 200 to 1500 rpm (sheet 3)
+and to 750 rpm (sheet 4). How does the lab change the prime mover's speed: a frequency
+inverter, a variable three-phase supply, or a different drive?

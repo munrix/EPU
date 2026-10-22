@@ -5,6 +5,7 @@ import { oscilloscopeModel } from '../../instruments/oscilloscope';
 import { buildCircuit } from '../connectivity/buildCircuit';
 import { MAINS_BREAKER_AMPS } from '../../equipment/network';
 import { defaultMachineState, GENERATOR, type MachineCircuit } from '../../machines/dcGenerator';
+import type { PolyphaseSupply } from './polyphase';
 
 /**
  * Solver-neutral circuit for the whole bench: physical nets plus the electrical models of
@@ -23,8 +24,18 @@ export function assembleCircuit(bench: Workbench): ElectricalCircuit {
     nodes.push(node);
     terminalToNode[id] = node.id;
   };
+  const polyphase: PolyphaseSupply[] = [];
   for (const equipment of bench.equipment) {
     const kind = definitionOf(equipment).kind;
+    if (kind === 'three-phase-supply') {
+      const pin = (k: 'R' | 'S' | 'T' | 'N') => `${equipment.id}.${k}`;
+      polyphase.push({
+        equipmentId: equipment.id,
+        on: bench.threePhase?.[equipment.id]?.on ?? false,
+        terminals: { R: pin('R'), S: pin('S'), T: pin('T'), N: pin('N') },
+      });
+      continue;
+    }
     if (kind === 'mg-set') {
       // Armature: EMF behind Ra, between A2 and A1. The EMF value is set by the machine solver.
       // Tachogenerator: EMF behind its resistance on the TG pair.
@@ -77,6 +88,15 @@ export function assembleCircuit(bench: Workbench): ElectricalCircuit {
         shuntId: pin('shunt'),
         seriesId: pin('series'),
         tachoId: pin('tacho'),
+        motor: {
+          equipmentId: id,
+          U1: pin('U1'),
+          V1: pin('V1'),
+          W1: pin('W1'),
+          U2: pin('U2'),
+          V2: pin('V2'),
+          W2: pin('W2'),
+        },
         state: bench.machines?.[id] ?? defaultMachineState,
       });
       continue;
@@ -114,5 +134,6 @@ export function assembleCircuit(bench: Workbench): ElectricalCircuit {
     measurements,
     protections,
     ...(machines.length ? { machines } : {}),
+    ...(polyphase.length ? { polyphase } : {}),
   };
 }

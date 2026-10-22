@@ -1,5 +1,11 @@
 import type { MeterSettings } from '../instruments/multimeter';
 import type { MachineCircuit, MachineReading, MachineState } from '../machines/dcGenerator';
+import type { PolyphaseSupply } from '../electrical/circuit/polyphase';
+export interface ThreePhaseState {
+  on: boolean;
+  /** Why the breaker last tripped, shown until it is switched on again. */
+  trip?: string;
+}
 export type Id = string;
 export interface Point {
   x: number;
@@ -168,7 +174,8 @@ export type EquipmentKind =
   | 'mg-set'
   | 'slide-rheostat'
   | 'supply-console'
-  | 'load-switch';
+  | 'load-switch'
+  | 'three-phase-supply';
 export interface TerminalTemplate {
   key: string;
   label: string;
@@ -266,8 +273,10 @@ export interface Workbench {
   internalLinks: [Id, Id][];
   plugs: Plug[];
   cables: Cable[];
-  /** Mechanical state of motor–generator sets (prime mover, magnetic history), by equipment ID. */
+  /** Magnetic history and meter switch of motor–generator sets, by equipment ID. */
   machines?: Record<Id, MachineState>;
+  /** Breaker state of three-phase R S T supplies, by equipment ID. */
+  threePhase?: Record<Id, ThreePhaseState>;
 }
 
 export interface ElectricalNode {
@@ -306,6 +315,8 @@ export interface ElectricalCircuit {
   earthNodeId?: Id;
   /** Rotating machines whose EMF depends on the solved currents. */
   machines?: MachineCircuit[];
+  /** Three-phase supplies, solved as phasors on the AC side of the bench. */
+  polyphase?: PolyphaseSupply[];
 }
 export type DiagnosticCode =
   | 'short-circuit'
@@ -316,6 +327,7 @@ export type DiagnosticCode =
   | 'solver-error'
   | 'invalid-parameter'
   | 'overcurrent'
+  | 'machine'
   | 'simulating';
 export interface Diagnostic {
   code: DiagnosticCode;
@@ -360,6 +372,10 @@ export interface SimulationResult {
   rmsCurrents?: Record<Id, number>;
   /** Operating point of each rotating machine, by equipment ID. */
   machines?: Record<Id, MachineReading>;
+  /** Three-phase supplies that see a short circuit (their breakers trip). */
+  polyphaseShorts?: { supplyId: Id; between: string[] }[];
+  /** Supplies whose motor protection sees locked-rotor current. */
+  polyphaseOverloads?: { supplyId: Id; reason: string }[];
 }
 export interface SolverAdapter {
   id: string;

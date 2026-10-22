@@ -11,9 +11,40 @@ import { parseBench } from '../src/persistence/bench';
 import { wire } from './helpers';
 
 const base = () => generatorOcc.createBench();
-const run = (b: Workbench, rpm = 1400): Workbench => ({
+/** Prime mover in star on R S T, breaker on. Options make the classic wiring mistakes. */
+function run(
+  b: Workbench,
+  options: { swap?: boolean; delta?: boolean; missing?: 'T'; viaSwitch?: boolean } = {},
+): Workbench {
+  if (options.delta) {
+    b = wire(b, 'mg.U1', 'mg.W2', 'm1');
+    b = wire(b, 'mg.V1', 'mg.U2', 'm2');
+    b = wire(b, 'mg.W1', 'mg.V2', 'm3');
+  } else {
+    b = wire(b, 'mg.W2', 'mg.U2', 'm1');
+    b = wire(b, 'mg.U2', 'mg.V2', 'm2');
+  }
+  const feed: [string, string][] = [
+    ['rst.R', 'mg.U1'],
+    ['rst.S', options.swap ? 'mg.W1' : 'mg.V1'],
+    ['rst.T', options.swap ? 'mg.V1' : 'mg.W1'],
+  ];
+  feed.forEach(([from, to], i) => {
+    if (options.missing === 'T' && from === 'rst.T') return;
+    if (options.viaSwitch) {
+      b = wire(b, from, `sw.${2 * i + 1}`, `f${i}a`);
+      b = wire(b, `sw.${2 * i + 2}`, to, `f${i}b`);
+    } else b = wire(b, from, to, `f${i}`);
+  });
+  return { ...b, threePhase: { rst: { on: true } } };
+}
+const closeSwitch = (b: Workbench): Workbench => ({
   ...b,
-  machines: { mg: { ...b.machines!.mg, running: rpm > 0, speedSetRpm: rpm } },
+  components: b.components.map((c) =>
+    c.id.startsWith('sw.pole') && c.kind === 'resistor'
+      ? { ...c, resistanceOhms: SWITCH_CLOSED_OHMS }
+      : c,
+  ),
 });
 const consoleOn = (b: Workbench): Workbench => ({
   ...b,
@@ -50,8 +81,8 @@ const armature = (b: Workbench) => {
 };
 
 /** Sheet 2 figure A: 220 V DC + → rheostat A–C → ammeter → F1, F2 → 220 V DC −; V across A1–A2. */
-function separatelyExcited(rheostatOhms: number, rpm = 1400) {
-  let b = consoleOn(run(base(), rpm));
+function separatelyExcited(rheostatOhms: number) {
+  let b = consoleOn(run(base()));
   b = wire(b, 'console.P220', 'rf.A', 'l1');
   b = wire(b, 'rf.C', 'meter.20A', 'l2');
   b = wire(b, 'meter.COM', 'mg.F1', 'l3');
@@ -61,8 +92,8 @@ function separatelyExcited(rheostatOhms: number, rpm = 1400) {
   return slider(b, 'rf', rheostatOhms);
 }
 /** Sheet 2 figure B: A1 → rheostat → ammeter → F1, F2 → A2. */
-function selfExcited(rheostatOhms: number, rpm = 1400, reversed = false) {
-  let b = run(base(), rpm);
+function selfExcited(rheostatOhms: number, reversed = false) {
+  let b = run(base());
   b = wire(b, 'mg.A1', 'rf.A', 'l1');
   b = wire(b, 'rf.C', 'meter.20A', 'l2');
   b = wire(b, 'meter.COM', reversed ? 'mg.F2' : 'mg.F1', 'l3');
@@ -73,17 +104,69 @@ function selfExcited(rheostatOhms: number, rpm = 1400, reversed = false) {
 }
 
 describe('generator bench', () => {
-  it('persists, including the machine state', () => {
+  it('persists, including the machine and supply state', () => {
     const b = run(base());
     expect(parseBench(JSON.parse(JSON.stringify(b)))).toEqual(b);
   });
 
-  it('reads the residual voltage at rated speed with no field current, and 0 V at rest', () => {
-    let b = run(base());
+  it('the set does not turn until the prime mover is wired to R S T and the breaker is on', () => {
+    let b = base();
     b = wire(b, 'mg.A1', 'meter2.V', 'v1');
     b = wire(b, 'mg.A2', 'meter2.COM', 'v2', 'black');
-    expect(solved(b).ctx.meter('meter2').value).toBeCloseTo(GENERATOR.residualVolts, 0);
-    expect(solved(run(b, 0)).ctx.meter('meter2').value).toBe(0);
+    expect(solved(b).m.rpm).toBe(0);
+    expect(solved({ ...b, threePhase: { rst: { on: true } } }).m.rpm).toBe(0);
+    expect(solved(b).ctx.meter('meter2').value).toBe(0);
+    const running = run(b);
+    expect(solved({ ...running, threePhase: { rst: { on: false } } }).m.rpm).toBe(0);
+    const { m, ctx } = solved(running);
+    expect(m.motorStatus).toBe('running');
+    expect(m.rpm).toBeGreaterThan(1450);
+    expect(m.rpm).toBeLessThan(1500);
+    m.windingVolts.forEach((v) => expect(v).toBeCloseTo(220, 0));
+    // Residual voltage only, scaled by the actual speed.
+    expect(ctx.meter('meter2').value).toBeCloseTo((GENERATOR.residualVolts * m.rpm) / 1400, 0);
+  });
+
+  it('through the load switch the motor runs only with the switch at I', () => {
+    const open = run(base(), { viaSwitch: true });
+    expect(solved(open).m.rpm).toBe(0);
+    expect(solved(closeSwitch(open)).m.rpm).toBeGreaterThan(1450);
+  });
+
+  it('swapping two phases turns the set backwards and reverses the EMF', () => {
+    const forward = armature(separatelyExcited(190));
+    let b = consoleOn(run(base(), { swap: true }));
+    b = wire(b, 'console.P220', 'rf.A', 'l1');
+    b = wire(b, 'rf.C', 'meter.20A', 'l2');
+    b = wire(b, 'meter.COM', 'mg.F1', 'l3');
+    b = wire(b, 'mg.F2', 'console.N220', 'l4');
+    b = slider(b, 'rf', 190);
+    const { m } = solved(b);
+    expect(m.rpm).toBeLessThan(-1450);
+    expect(armature(b)).toBeCloseTo(-forward, 0);
+  });
+
+  it('delta on the 380 V supply overvolts the windings and is flagged', () => {
+    const { m, result } = solved(run(base(), { delta: true }));
+    m.windingVolts.forEach((v) => expect(v).toBeCloseTo(220 * Math.sqrt(3), 0));
+    expect(result.diagnostics.some((d) => d.code === 'machine' && /star/.test(d.message))).toBe(
+      true,
+    );
+  });
+
+  it('a missing phase: the motor hums, does not start, and the breaker trips', () => {
+    const b = run(base(), { missing: 'T' });
+    expect(solved(b).m.motorStatus).toBe('humming');
+    const settled = settleMachines(b);
+    expect(settled.threePhase!.rst.on).toBe(false);
+    expect(settled.threePhase!.rst.trip).toMatch(/single phasing/);
+  });
+
+  it('a lead between R and S trips the breaker', () => {
+    const b = wire(run(base()), 'rst.R', 'rst.S', 'x1');
+    const settled = settleMachines(b);
+    expect(settled.threePhase!.rst).toEqual({ on: false, trip: 'Short circuit between R and S' });
+    expect(solved(settled).m.rpm).toBe(0);
   });
 
   it('separately excited: If and Eo follow the wiring and the open-circuit curve', () => {
@@ -92,7 +175,7 @@ describe('generator bench', () => {
     const { ctx, m } = solved(b);
     expect(excitationMode(ctx)).toBe('separate');
     expect(ctx.meter('meter').value).toBeCloseTo(0.5, 2);
-    expect(armature(b)).toBeCloseTo(risingOcc(m.shuntAmps), 1);
+    expect(armature(b)).toBeCloseTo((risingOcc(m.shuntAmps) * m.rpm) / GENERATOR.ratedRpm, 1);
     expect(m.converged).toBe(true);
   });
 
@@ -107,9 +190,9 @@ describe('generator bench', () => {
   });
 
   it('Eo is proportional to speed at constant field current (sheet 3)', () => {
-    const e1400 = armature(separatelyExcited(190, 1400));
-    const e700 = armature(separatelyExcited(190, 700));
-    expect(e700 / e1400).toBeCloseTo(0.5, 3);
+    const b = separatelyExcited(190);
+    const { m } = solved(b);
+    expect(armature(b) / risingOcc(m.shuntAmps)).toBeCloseTo(m.rpm / GENERATOR.ratedRpm, 3);
   });
 
   it('self-excited: builds up below the critical resistance, not above it', () => {
@@ -123,13 +206,7 @@ describe('generator bench', () => {
   });
 
   it('self-excited: a reversed field cancels the residual flux and cannot build up', () => {
-    expect(Math.abs(armature(selfExcited(150, 1400, true)))).toBeLessThan(GENERATOR.residualVolts);
-  });
-
-  it('self-excited: below the critical speed it stays near the residual voltage', () => {
-    // 400 Ω total: critical at 1400 rpm, but at 600 rpm the critical resistance is ≈ 340 Ω.
-    expect(armature(selfExcited(150, 600))).toBeLessThan(25);
-    expect(armature(selfExcited(150, 1400))).toBeGreaterThan(200);
+    expect(Math.abs(armature(selfExcited(150, true)))).toBeLessThan(GENERATOR.residualVolts);
   });
 
   it('the falling magnetization curve lies above the rising one (sheet 2, table 2)', () => {
@@ -164,7 +241,7 @@ describe('generator bench', () => {
     expect(m.armatureAmps).toBeCloseTo(ctx.meter('meter3').value!, 2);
     expect(vl).toBeCloseTo(m.emfVolts - m.armatureAmps * GENERATOR.armatureOhms, 1);
     expect(vl).toBeLessThan(open - 10);
-    expect(m.rpm).toBeLessThan(1400);
+    expect(m.rpm).toBeLessThan(solved(b).m.rpm - 20);
   });
 
   it('a short across the armature is limited by Ra, not reported as an ideal short', () => {
@@ -176,7 +253,7 @@ describe('generator bench', () => {
   });
 
   it('an unwired generator raises no warnings', () => {
-    const { result } = solved(run(base()));
+    const { result } = solved(base());
     // (Unwired multimeters report "floating", as on every bench.)
     expect(result.diagnostics.filter((d) => d.code !== 'floating-meter')).toEqual([]);
   });

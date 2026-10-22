@@ -13,6 +13,9 @@
  * (reversed F1–F2) drives the flux through zero, which is why a reversed self-excited machine
  * cannot build up. EMF scales with speed: E = OCC(x) · N / N_rated.
  */
+import type { MotorTerminals } from '../electrical/circuit/polyphase';
+import type { MotorStatus } from './inductionMotor';
+
 export const GENERATOR = {
   ratedRpm: 1400,
   /** Sheet 5: "If the resistance of armature is (4 Ω)". */
@@ -27,28 +30,18 @@ export const GENERATOR = {
   seriesTurnsRatio: 0.04,
   /** Demagnetizing armature reaction, volts lost per ampere of armature current. */
   armatureReactionVoltsPerAmp: 1.5,
-  /** Prime-mover speed range used by the sheets (200–1500 rpm). */
-  maxRpm: 1500,
-  /** Prime-mover speed drop per watt of electrical output, so load pulls the speed down. */
-  droopRpmPerWatt: 0.05,
   /** Tachogenerator output. */
   tachoVoltsPerRpm: 0.02,
   tachoOhms: 50,
 };
 
 export interface MachineState {
-  /** Prime mover running (START/STOP). */
-  running: boolean;
-  /** Prime-mover speed setting, rpm. */
-  speedSetRpm: number;
   /** Highest equivalent field current reached since the poles were last reversed. */
   peakFieldAmps: number;
   /** Panel toggle under the speed meter: MOTOR (+) or GENERATOR (−). */
   meterMode: 'motor' | 'generator';
 }
 export const defaultMachineState: MachineState = {
-  running: false,
-  speedSetRpm: 1400,
   peakFieldAmps: 0,
   meterMode: 'generator',
 };
@@ -66,10 +59,18 @@ export interface MachineCircuit {
   seriesId: string;
   /** Tachogenerator EMF source. */
   tachoId: string;
+  /** The prime mover's terminal box. */
+  motor: MotorTerminals;
   state: MachineState;
 }
 export interface MachineReading {
+  /** Signed shaft speed: positive in the forward direction (R S T on U1 V1 W1). */
   rpm: number;
+  motorStatus: MotorStatus;
+  /** Prime-mover line current (approximate), A. */
+  motorAmps: number;
+  /** Voltage across each prime-mover winding U, V, W. */
+  windingVolts: number[];
   emfVolts: number;
   /** Equivalent field current (shunt + series contribution), A. */
   excitationAmps: number;
@@ -94,19 +95,14 @@ export function occVolts(x: number, peakAmps: number): number {
   return up + lift * (1 - x / peakAmps);
 }
 
-/** Shaft speed: the prime mover's setting, less the droop from electrical output power. */
-export function shaftRpm(state: MachineState, outputWatts: number): number {
-  if (!state.running) return 0;
-  const g = GENERATOR;
-  return Math.max(0, state.speedSetRpm - g.droopRpmPerWatt * Math.max(0, outputWatts));
-}
-
 /** Armature EMF for the given excitation, speed and armature current. */
 export function emfVolts(x: number, rpm: number, peakAmps: number, armatureAmps: number): number {
   const g = GENERATOR;
+  // Running backwards reverses the EMF for the same flux.
   const e = (occVolts(x, peakAmps) * rpm) / g.ratedRpm;
   // Armature reaction weakens the field in proportion to the load current, never reversing it.
-  const reaction = g.armatureReactionVoltsPerAmp * Math.abs(armatureAmps) * (rpm / g.ratedRpm);
+  const reaction =
+    g.armatureReactionVoltsPerAmp * Math.abs(armatureAmps) * (Math.abs(rpm) / g.ratedRpm);
   return Math.sign(e) * Math.max(0, Math.abs(e) - reaction);
 }
 

@@ -24,8 +24,10 @@ and B).
   - load drop through Ra = 4 Ω plus armature reaction
   - prime-mover droop
   - all covered by `tests/generator.test.ts`.
+- The prime mover is a three-phase induction motor wired through its own terminal box to an R S
+  T supply (22 Oct). There is no START button or speed knob: star/delta, phase order, a missing
+  phase and shorts all behave as on the real set.
 - Stand-ins until photos arrive:
-  - a prime-mover START/STOP and speed control on the set
   - three DT-9205A meters for the sheets' 1 A, 0–300 V and 6–12 A meters
 
 Next: DCM 03–05 on the same bench, the DCM 01 rebuild on the M-G set, and wiring quality. Leads

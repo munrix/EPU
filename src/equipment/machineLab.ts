@@ -19,6 +19,17 @@ export const LOAD_SWITCH_ID = 'load-switch-v1';
  * state; the field windings are fixed resistors here.
  */
 export const MG_PANEL = { x: 40, y: 290, width: 900, height: 200 };
+export const MOTOR_BOX_AT = { x: 626, y: 0, width: 232, height: 124 };
+export const MOTOR_BOX: [string, number, number][] = [
+  ['W2', 686, 30],
+  ['U2', 750, 30],
+  ['V2', 814, 30],
+  ['U1', 686, 92],
+  ['V1', 750, 92],
+  ['W1', 814, 92],
+];
+/** DC resistance of each prime-mover winding (assumed, typical for 1.1 kW). */
+export const MOTOR_WINDING_OHMS = 7;
 const col1 = 520,
   col2 = 620,
   row = (n: number) => MG_PANEL.y + 38 + n * 46;
@@ -38,8 +49,19 @@ export const mgSet: EquipmentDefinition = {
     { key: 'D2', label: 'D2', x: col2, y: row(2) + 16, color: 'black' },
     { key: 'TG1', label: 'TG', x: col1, y: row(3) - 6, color: 'black' },
     { key: 'TG2', label: 'TG', x: col2, y: row(3) + 6, color: 'black' },
+    // Prime-mover terminal box (IEC layout): U1 V1 W1 in front, W2 U2 V2 behind, so horizontal
+    // links make a star and vertical links make a delta.
+    ...MOTOR_BOX.map(([key, x, y]) => ({ key, label: key, x, y, color: 'black' as const })),
   ],
   components: [
+    ...(['U', 'V', 'W'] as const).map((p) => ({
+      key: `winding-${p}`,
+      kind: 'resistor' as const,
+      a: `${p}1`,
+      b: `${p}2`,
+      resistanceOhms: MOTOR_WINDING_OHMS,
+      section: true,
+    })),
     { key: 'shunt', kind: 'resistor', a: 'F1', b: 'F2', resistanceOhms: GENERATOR.shuntFieldOhms },
     {
       key: 'series',
@@ -198,4 +220,33 @@ export const loadSwitch: EquipmentDefinition = {
   })),
 };
 
-export const machineLabEquipment = [mgSet, fieldRheostat, loadRheostat, console220, loadSwitch];
+/**
+ * Three-phase supply R S T N, 380 V between lines, 220 V to N, 50 Hz, with a three-pole breaker.
+ * The lab confirms the prime mover runs from an R S T source; where those sockets sit on the real
+ * benches is not photographed, so this is its own panel for now.
+ */
+export const THREE_PHASE_ID = 'three-phase-supply-v1';
+export const threePhaseSupply: EquipmentDefinition = {
+  id: THREE_PHASE_ID,
+  name: 'Three-phase supply R S T',
+  kind: 'three-phase-supply',
+  size: { width: 420, height: 250 },
+  limits: {},
+  terminals: (['R', 'S', 'T', 'N'] as const).map((key, i) => ({
+    key,
+    label: key,
+    x: 70 + i * 92,
+    y: 196,
+    color: 'black' as const,
+  })),
+  components: [],
+};
+
+export const machineLabEquipment = [
+  mgSet,
+  fieldRheostat,
+  loadRheostat,
+  console220,
+  loadSwitch,
+  threePhaseSupply,
+];

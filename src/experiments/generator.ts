@@ -8,6 +8,7 @@ import {
   LOAD_SWITCH_ID,
   MG_SET_ID,
   SWITCH_OPEN_OHMS,
+  THREE_PHASE_ID,
 } from '../equipment/machineLab';
 import { instantiateEquipment } from '../equipment/registry';
 import { GENERATOR } from '../machines/dcGenerator';
@@ -32,6 +33,7 @@ export function generatorBench(experimentId: string): Workbench {
       instantiateEquipment('dt9205a-v1', 'meter3', { x: 2110, y: -20 }, { label: 'IL' }),
       instantiateEquipment(MG_SET_ID, 'mg', { x: 40, y: 520 }),
       instantiateEquipment(CONSOLE_ID, 'console', { x: 1080, y: 540 }),
+      instantiateEquipment(THREE_PHASE_ID, 'rst', { x: 660, y: 236 }),
     ],
     'dca-20',
     'epu-lab',
@@ -45,9 +47,14 @@ export function generatorBench(experimentId: string): Workbench {
   };
 }
 
-const RATED = GENERATOR.ratedRpm;
 const machine = (c: StepContext) => c.result.machines?.mg;
-const atRatedSpeed = (c: StepContext) => Math.abs((machine(c)?.rpm ?? 0) - RATED) <= 15;
+/**
+ * The set runs at the induction motor's speed, fixed by the 50 Hz supply (about 1490 rpm with
+ * the generator unloaded). The sheets' 1400 rpm needs a speed control the photos do not show,
+ * so any steady forward running speed is accepted and recorded with each reading.
+ */
+const atRatedSpeed = (c: StepContext) =>
+  machine(c)?.motorStatus === 'running' && (machine(c)?.rpm ?? 0) > 0.9 * GENERATOR.ratedRpm;
 
 /**
  * How the shunt field is fed, judged from the wiring alone: from the console (separately
@@ -118,11 +125,18 @@ function occColumn(c: StepContext, mode: 'separate' | 'self', loop: boolean): st
 const occRows = [
   { id: 'If', label: 'If', unit: 'A', decimals: 2, capture: fieldAmps },
   { id: 'Eo', label: 'Eo', unit: 'V', decimals: 1, capture: armatureVolts },
+  {
+    id: 'n',
+    label: 'n',
+    unit: 'rpm',
+    decimals: 0,
+    capture: (c: StepContext) => machine(c)?.rpm ?? null,
+  },
 ];
 const occTables = (mode: 'separate' | 'self', part: string): ExperimentTable[] => [
   {
     id: `${part}-noload`,
-    title: `${part} · Table 1 · no-load characteristic (n = 1400 rpm)`,
+    title: `${part} · Table 1 · no-load characteristic (constant speed)`,
     columnLabel: 'If (A)',
     columns: UP,
     column: (c) => occColumn(c, mode, false),
@@ -145,7 +159,7 @@ export const generatorOcc: ExperimentDefinition = {
   code: 'DCM 02',
   title: 'Open-circuit and magnetization characteristics',
   summary:
-    'DC machines lab, experiment 2: Eo against If at 1400 rpm, separately excited (A) and self-excited (B), up and down.',
+    'DC machines lab, experiment 2: Eo against If at constant speed, separately excited (A) and self-excited (B), up and down.',
   objective:
     'Obtain the no-load (open-circuit) curve and the magnetization loop of the DC generator, first with the field fed from the 220 V DC supply, then from its own armature.',
   theory:
@@ -162,7 +176,8 @@ export const generatorOcc: ExperimentDefinition = {
       check: (c) => armatureVolts(c) !== null,
     },
     {
-      text: 'Start the prime mover and bring it to 1400 rpm on the speed meter.',
+      text: 'Prime mover: link W2–U2–V2 in its terminal box (star), then R → U1, S → V1, T → W1 (through the load switch poles if you like). Switch the R S T breaker on.',
+      hint: 'Star, because each winding is rated 220 V and R S T is 380 V between lines. Turning backwards? Swap two phases. Humming? A phase is missing.',
       check: atRatedSpeed,
     },
     {
@@ -190,7 +205,7 @@ export const generatorOcc: ExperimentDefinition = {
       check: (c) => excitationMode(c) === 'self' && c.meterInSeries('mg.shunt', 'meter'),
     },
     {
-      text: 'At 1400 rpm, let the voltage build up, then take both tables again.',
+      text: 'With the set running, let the voltage build up, then take both tables again.',
       hint: 'No build-up? Reduce the field rheostat (below the critical resistance), or swap the F1–F2 leads: a reversed field cancels the residual flux.',
       check: (c) =>
         excitationMode(c) === 'self' && atRatedSpeed(c) && (armatureVolts(c) ?? 0) > 150,
