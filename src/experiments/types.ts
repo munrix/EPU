@@ -70,6 +70,15 @@ export interface ExperimentTable {
   slotKey?: string;
 }
 
+/** A sheet's figure already wired on the bench, for demonstration or to check one's own wiring. */
+export interface ExperimentPreset {
+  id: string;
+  title: string;
+  description: string;
+  /** The bench as the figure shows it, with every supply switched off. */
+  build(): Workbench;
+}
+
 export interface ExperimentDefinition {
   id: string;
   profileId: string;
@@ -87,6 +96,8 @@ export interface ExperimentDefinition {
   openBench?: boolean;
   /** What the equipment drawer offers on an open bench. */
   drawer?: 'resistors' | 'lab-boards';
+  /** Ready-made wirings of the sheet's figures. */
+  presets?: ExperimentPreset[];
   /** Bench stations reproduce a real lab bench rather than teach one exercise. */
   station?: boolean;
   createBench(): Workbench;

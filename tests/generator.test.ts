@@ -320,4 +320,40 @@ describe('generator bench', () => {
       expect(meter(across(base(), 'mg.A1', 'mg.A2', 'ohm-200')).value).toBeCloseTo(4, 0);
     });
   });
+
+  describe('presets: the sheet’s figure (1), wired', () => {
+    const preset = (id: string) => generatorOcc.presets!.find((p) => p.id === id)!.build();
+    const supplies = (b: Workbench) => ({ ...consoleOn(b), threePhase: { rst: { on: true } } });
+
+    it('both presets load, persist, and leave every supply off', () => {
+      for (const id of ['part-a', 'part-b']) {
+        const b = preset(id);
+        expect(parseBench(JSON.parse(JSON.stringify(b)))).toEqual(b);
+        expect(b.threePhase!.rst.on).toBe(false);
+        expect(b.components.some((c) => c.kind === 'dc-source' && c.enabled)).toBe(false);
+        expect(solved(b).m.rpm).toBe(0);
+      }
+    });
+
+    it('Part A: separately excited, the guide’s wiring steps pass', () => {
+      const b = slider(supplies(preset('part-a')), 'rf', 190);
+      const { ctx, m } = solved(b);
+      expect(excitationMode(ctx)).toBe('separate');
+      expect(ctx.meter('meter').value).toBeCloseTo(0.5, 2);
+      expect(armature(b)).toBeGreaterThan(250);
+      expect(m.motorStatus).toBe('running');
+      const passed = generatorOcc.steps.slice(0, 3).map((s) => s.check(ctx));
+      expect(passed).toEqual([true, true, true]);
+    });
+
+    it('Part B: self-excited through the switch, builds up only with the switch closed', () => {
+      const open = slider(supplies(preset('part-b')), 'rf', 150);
+      expect(armature(open)).toBeLessThan(15);
+      const closed = closeSwitch(open);
+      const { ctx } = solved(closed);
+      expect(excitationMode(ctx)).toBe('self');
+      expect(armature(closed)).toBeGreaterThan(200);
+      expect(generatorOcc.steps.at(-1)!.check(ctx)).toBe(true);
+    });
+  });
 });

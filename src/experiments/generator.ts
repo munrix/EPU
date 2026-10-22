@@ -1,4 +1,5 @@
-import type { Workbench } from '../domain/models';
+import type { CableColor, Workbench } from '../domain/models';
+import { connectCable } from '../domain/connections';
 import { componentPins, isActive } from '../domain/models';
 import { DisjointSet } from '../electrical/connectivity/buildCircuit';
 import {
@@ -203,7 +204,7 @@ export const generatorOcc: ExperimentDefinition = {
         Math.abs(machine(c)?.shuntAmps ?? 1) < 0.05,
     },
     {
-      text: 'Part B. Self-excited: A1 → field rheostat → ammeter → F1; F2 → A2 (field across its own armature). Leave the voltmeter on A1–A2.',
+      text: 'Part B (figure 1, self-excited): A1 → switch (load switch, poles 1–2) → field rheostat → ammeter → F1; F2 → A2. The field is fed from its own armature. Leave the voltmeter on A1–A2 and close the switch.',
       check: (c) => excitationMode(c) === 'self' && c.meterInSeries('mg.shunt', 'meter'),
     },
     {
@@ -216,5 +217,66 @@ export const generatorOcc: ExperimentDefinition = {
     },
   ],
   tables: [...occTables('separate', 'A'), ...occTables('self', 'B')],
+  presets: [
+    {
+      id: 'part-a',
+      title: 'Part A · figure (1), separately excited',
+      description:
+        '220 V DC + → field rheostat A–C → ammeter (20A) → F1, F2 → 220 V DC −; voltmeter on A1–A2; prime mover in star on R S T.',
+      build: () => separatelyExcitedPreset(generatorBench('dcm-occ')),
+    },
+    {
+      id: 'part-b',
+      title: 'Part B · figure (1), self-excited',
+      description:
+        'A1 → switch (poles 1–2) → field rheostat A–C → ammeter (20A) → F1, F2 → A2; voltmeter on A1–A2; prime mover in star on R S T.',
+      build: () => selfExcitedPreset(generatorBench('dcm-occ')),
+    },
+  ],
   createBench: () => generatorBench('dcm-occ'),
 };
+
+type Lead = [from: string, to: string, color?: CableColor];
+const wireAll = (bench: Workbench, prefix: string, leads: Lead[]) =>
+  leads.reduce(
+    (b, [from, to, color = 'red'], i) =>
+      connectCable(
+        b,
+        { kind: 'terminal', terminalId: from },
+        { kind: 'terminal', terminalId: to },
+        color,
+        `${prefix}-${i + 1}`,
+      ),
+    bench,
+  );
+/** Prime mover in star (W2–U2–V2 linked), fed R → U1, S → V1, T → W1. */
+const primeMover: Lead[] = [
+  ['mg.W2', 'mg.U2', 'black'],
+  ['mg.U2', 'mg.V2', 'black'],
+  ['rst.R', 'mg.U1'],
+  ['rst.S', 'mg.V1', 'yellow'],
+  ['rst.T', 'mg.W1', 'green'],
+];
+const voltmeter: Lead[] = [
+  ['mg.A1', 'meter2.V'],
+  ['mg.A2', 'meter2.COM', 'black'],
+];
+export const separatelyExcitedPreset = (bench: Workbench) =>
+  wireAll(bench, 'preset-a', [
+    ...primeMover,
+    ['console.P220', 'rf.A'],
+    ['rf.C', 'meter.20A'],
+    ['meter.COM', 'mg.F1'],
+    ['mg.F2', 'console.N220', 'black'],
+    ...voltmeter,
+  ]);
+export const selfExcitedPreset = (bench: Workbench) =>
+  wireAll(bench, 'preset-b', [
+    ...primeMover,
+    ['mg.A1', 'sw.1'],
+    ['sw.2', 'rf.A'],
+    ['rf.C', 'meter.20A'],
+    ['meter.COM', 'mg.F1'],
+    ['mg.F2', 'mg.A2', 'black'],
+    ...voltmeter,
+  ]);

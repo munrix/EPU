@@ -39,7 +39,9 @@ export function GuidePanel({
   ctx,
   onRecord,
   onClearColumn,
+  onPreset,
 }: {
+  onPreset(presetId: string): void;
   experiment: ExperimentDefinition;
   notebook: NotebookState;
   bench: Workbench;
@@ -94,6 +96,26 @@ export function GuidePanel({
           </ol>
         </>
       )}
+      {experiment.presets?.length ? (
+        <div className="presets">
+          <div className="section-label">PRESET CONNECTIONS</div>
+          {experiment.presets.map((p) => (
+            <button
+              key={p.id}
+              className="record-button"
+              data-testid={`preset-${p.id}`}
+              title={p.description}
+              onClick={() => onPreset(p.id)}
+            >
+              Wire {p.title}
+            </button>
+          ))}
+          <p className="step-hint">
+            Replaces the bench with the figure already wired, every supply off. Undo brings your own
+            wiring back.
+          </p>
+        </div>
+      ) : null}
       {experiment.tables?.map((table) => (
         <ResultsTable
           key={table.id}

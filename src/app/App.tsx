@@ -420,6 +420,14 @@ export default function App() {
                   );
                 }}
                 onClearColumn={clearColumn}
+                onPreset={(presetId) => {
+                  const preset = experiment.presets?.find((p) => p.id === presetId);
+                  if (!preset) return;
+                  replaceBench(preset.build());
+                  setMessage(
+                    `${preset.title} is wired. Switch on the R S T breaker and the supplies to test.`,
+                  );
+                }}
               />
             )}
             {panel === 'readings' && (
