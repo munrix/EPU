@@ -61,12 +61,21 @@ const atRatedSpeed = (c: StepContext) =>
  * How the shunt field is fed, judged from the wiring alone: from the console (separately
  * excited), from the machine's own armature (self-excited), or neither.
  */
-export function excitationMode(c: StepContext): 'separate' | 'self' | null {
+export function excitationMode(
+  c: StepContext,
+  /** Count open switch poles as connections: the figure is wired even with its switch at 0. */
+  throughOpenSwitches = false,
+): 'separate' | 'self' | null {
   const sets = new DisjointSet();
   const internal = new Set(['mg.emf', 'mg.armature', 'mg.shunt', 'mg.series', 'mg.tacho']);
   for (const part of c.circuit.components) {
     if (internal.has(part.id) || !isActive(part)) continue;
-    if (part.kind === 'resistor' && part.resistanceOhms >= SWITCH_OPEN_OHMS / 10) continue;
+    if (
+      !throughOpenSwitches &&
+      part.kind === 'resistor' &&
+      part.resistanceOhms >= SWITCH_OPEN_OHMS / 10
+    )
+      continue;
     const [a, ...rest] = componentPins(part).map((t) => c.circuit.terminalToNode[t]);
     rest.forEach((b) => sets.union(a, b));
   }
@@ -217,6 +226,46 @@ export const generatorOcc: ExperimentDefinition = {
     },
   ],
   tables: [...occTables('separate', 'A'), ...occTables('self', 'B')],
+  parts: [
+    {
+      id: 'A',
+      label: 'A',
+      title: 'Separately excited',
+      summary: 'Field F1–F2 fed from the console’s 220 V DC',
+      presetId: 'part-a',
+      steps: [0, 1, 2, 3, 4, 5],
+      tableIds: ['A-noload', 'A-loop'],
+      connected: (c) => excitationMode(c, true) === 'separate',
+      pending: (c) =>
+        !c.bench.threePhase?.rst?.on
+          ? 'Switch on the R S T breaker to run the prime mover.'
+          : !c.bench.components.some(
+                (p) => p.id === 'console.dc220' && p.kind === 'dc-source' && p.enabled,
+              )
+            ? 'Press START on the console to feed the field.'
+            : null,
+    },
+    {
+      id: 'B',
+      label: 'B',
+      title: 'Self-excited',
+      summary: 'Field F1–F2 fed from its own armature A1–A2',
+      presetId: 'part-b',
+      steps: [6, 1, 2, 7, 4, 5],
+      tableIds: ['B-noload', 'B-loop'],
+      connected: (c) => excitationMode(c, true) === 'self',
+      pending: (c) =>
+        !c.bench.threePhase?.rst?.on
+          ? 'Switch on the R S T breaker to run the prime mover.'
+          : c.bench.components.some(
+                (p) => p.id === 'sw.pole1' && p.kind === 'resistor' && p.resistanceOhms > 1,
+              )
+            ? 'Turn the load switch to I to close the field circuit.'
+            : (armatureVolts(c) ?? 0) < 50
+              ? 'No build-up yet: slide the field rheostat towards A (below the critical resistance).'
+              : null,
+    },
+  ],
   presets: [
     {
       id: 'part-a',

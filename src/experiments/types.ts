@@ -79,6 +79,28 @@ export interface ExperimentPreset {
   build(): Workbench;
 }
 
+/**
+ * One part of a sheet with its own figure (for example separately and self-excited). The guide
+ * shows the selected part's steps and tables; the bench can be switched to its figure.
+ */
+export interface ExperimentPart {
+  id: string;
+  /** Short name on the switch, e.g. 'Separately excited'. */
+  title: string;
+  /** Letter or number the sheet uses, e.g. 'A'. */
+  label: string;
+  /** What feeds what, in one line. */
+  summary: string;
+  presetId: string;
+  /** Indexes into the experiment's steps, in the order to show them. */
+  steps: number[];
+  tableIds: string[];
+  /** The bench is wired as this part's figure (judged from the wiring, never from the preset). */
+  connected(ctx: StepContext): boolean;
+  /** Something the student still has to do before this part works, or null. */
+  pending?(ctx: StepContext): string | null;
+}
+
 export interface ExperimentDefinition {
   id: string;
   profileId: string;
@@ -98,6 +120,7 @@ export interface ExperimentDefinition {
   drawer?: 'resistors' | 'lab-boards';
   /** Ready-made wirings of the sheet's figures. */
   presets?: ExperimentPreset[];
+  parts?: ExperimentPart[];
   /** Bench stations reproduce a real lab bench rather than teach one exercise. */
   station?: boolean;
   createBench(): Workbench;

@@ -28,6 +28,7 @@ import type { ValueField } from '../bench/rendering/EquipmentBody';
 import { useWorkbench } from './useWorkbench';
 import { useNotebook } from './useNotebook';
 import { useScopeSettings } from './useScopeSettings';
+import { PartSwitch } from './PartSwitch';
 import {
   ConnectionsPanel,
   ExperimentsPanel,
@@ -77,6 +78,21 @@ export default function App() {
   const [scopes, setScopes] = useScopeSettings(bench.experimentId);
   const experiment = experimentById(bench.experimentId)!;
   const ctx = useMemo(() => stepContext(bench, circuit, result), [bench, circuit, result]);
+  // Experiments with parts (separately / self-excited): the part shown in the guide and on the
+  // switch is the one chosen, else the one the leads currently form.
+  const [chosenPart, setChosenPart] = useState<string | null>(null);
+  useEffect(() => setChosenPart(null), [experiment.id]);
+  const connectedPart =
+    experiment.parts?.find((p) => {
+      try {
+        return p.connected(ctx);
+      } catch {
+        return false;
+      }
+    })?.id ?? null;
+  const activePart = experiment.parts
+    ? (chosenPart ?? connectedPart ?? experiment.parts[0].id)
+    : null;
   const { notebook, reset: resetNotebook, record, clearColumn } = useNotebook(experiment, ctx);
   const [color, setColor] = useState<CableColor>('red');
   const [selected, select] = useState<Selection>(null);
@@ -132,6 +148,34 @@ export default function App() {
     previousFuses.current = { experimentId: bench.experimentId, blown };
   }, [bench.instrumentSettings, bench.experimentId]);
 
+  /**
+   * Shows a part and, unless the leads already form it, rewires the bench as its figure in one
+   * undoable edit. Supply, meter, rheostat and switch settings and the machine's state are kept,
+   * so switching between parts does not reset the bench.
+   */
+  function choosePart(partId: string) {
+    const part = experiment.parts?.find((p) => p.id === partId);
+    if (!part) return;
+    setChosenPart(partId);
+    setPanel('guide');
+    if (connectedPart === partId) return;
+    const preset = experiment.presets?.find((p) => p.id === part.presetId);
+    if (!preset) return;
+    const fresh = preset.build();
+    const components = new Map(bench.components.map((c) => [c.id, c]));
+    const placed = new Map(bench.equipment.map((e) => [e.id, e.position]));
+    replaceBench({
+      ...fresh,
+      equipment: fresh.equipment.map((e) => ({ ...e, position: placed.get(e.id) ?? e.position })),
+      components: fresh.components.map((c) => components.get(c.id) ?? c),
+      instrumentSettings: { ...fresh.instrumentSettings, ...bench.instrumentSettings },
+      ...(bench.machines ? { machines: bench.machines } : {}),
+      ...(bench.threePhase ? { threePhase: bench.threePhase } : {}),
+    });
+    setMessage(
+      `Rewired as part ${part.label}, ${part.title.toLowerCase()}: ${part.summary}. Undo brings your previous wiring back.`,
+    );
+  }
   function togglePanel(next: Panel) {
     setPanel((p) => (p === next ? null : next));
   }
@@ -320,6 +364,15 @@ export default function App() {
         scopes={scopes}
         onScope={(id, settings) => setScopes({ ...scopes, [id]: settings })}
       />
+      {experiment.parts && activePart && (
+        <PartSwitch
+          experiment={experiment}
+          ctx={ctx}
+          active={activePart}
+          connected={connectedPart}
+          onChoose={choosePart}
+        />
+      )}
       <header className="floating-header">
         <div className="brand-mark">
           <Activity size={23} strokeWidth={1.7} />
@@ -420,6 +473,8 @@ export default function App() {
                   );
                 }}
                 onClearColumn={clearColumn}
+                activePart={activePart}
+                connectedPart={connectedPart}
                 onPreset={(presetId) => {
                   const preset = experiment.presets?.find((p) => p.id === presetId);
                   if (!preset) return;

@@ -69,6 +69,8 @@ a {
   --muted: #687a8a;
   --accent: #4f78a0;
   --tint: #e5edf6;
+  --live: #2f7a4a;
+  --live-tint: #e3f1e7;
   --shadow: 0 3px 14px #25394e0a, 0 1px 3px #25394e08;
   position: relative;
   width: 100vw;
@@ -88,6 +90,8 @@ a {
   --muted: #b0bcc8;
   --accent: #92b6df;
   --tint: #3b5068;
+  --live: #8fd3a5;
+  --live-tint: #2c4637;
   --shadow: 0 4px 18px #11192022;
 }
 .workbench-area,
@@ -1499,4 +1503,158 @@ a {
 }
 .theory-values {
   margin-top: 18px;
+}
+
+/* Part switch (DCM 02: separately / self-excited), on the right of the bench */
+.part-switch {
+  position: absolute;
+  z-index: 5;
+  /* Bottom right, clear of the instruments along the top of the bench. */
+  bottom: 132px;
+  right: 20px;
+  width: 290px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+}
+.part-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.part-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--raised);
+}
+.part-option:hover {
+  border-color: var(--accent);
+}
+.part-option:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.part-option.active {
+  border-color: var(--accent);
+  background: var(--tint);
+}
+.part-letter {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1.5px solid var(--accent);
+  color: var(--accent);
+  font-weight: 700;
+}
+.part-option.active .part-letter,
+.part-heading .part-letter {
+  background: var(--accent);
+  color: var(--surface);
+}
+.part-text,
+.part-heading > span:nth-child(2) {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.part-text strong,
+.part-heading strong {
+  font-size: 12px;
+}
+.part-text small,
+.part-heading small {
+  font-size: 10.5px;
+  color: var(--muted);
+}
+.part-status {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 11px;
+  line-height: 1.45;
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: var(--tint);
+  color: var(--text);
+}
+.part-status svg {
+  flex: none;
+  margin-top: 2px;
+}
+.part-status.live {
+  background: var(--live-tint);
+}
+.part-status.live svg {
+  color: var(--live);
+}
+.part-status em {
+  display: block;
+  margin-top: 4px;
+  font-style: normal;
+  font-weight: 600;
+}
+.part-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 12px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--raised);
+}
+.part-heading > span:nth-child(2) {
+  flex: 1 1 160px;
+}
+.part-heading .part-pill {
+  margin-left: 36px;
+}
+.part-pill {
+  flex: none;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  background: var(--tint);
+  color: var(--muted);
+}
+.part-pill.live {
+  background: var(--live-tint);
+  color: var(--live);
+}
+.part-tables-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 18px;
+}
+.other-part {
+  margin-top: 16px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+.other-part summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--muted);
 }
