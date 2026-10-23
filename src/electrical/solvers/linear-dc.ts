@@ -281,7 +281,7 @@ export const linearDcSolver: SolverAdapter = {
           }),
         );
         resistors
-          .filter((c) => !isInstrument(c))
+          .filter((c) => !isInstrument(c) && !c.section)
           .forEach((c) => {
             const alternate = new DisjointSet();
             components

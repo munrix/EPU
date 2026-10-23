@@ -1,6 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent, RefObject } from 'react';
-import { Hand, Maximize, Minus, MousePointer2, Plus, Undo2, Redo2 } from 'lucide-react';
+import {
+  Hand,
+  Maximize,
+  Minus,
+  MousePointer2,
+  PaintBucket,
+  Palette,
+  Plus,
+  Spline,
+  Undo2,
+  Redo2,
+} from 'lucide-react';
 import type {
   CableColor,
   ConnectionTarget,
@@ -19,17 +30,32 @@ import {
   sameAttachment,
 } from '../domain/connections';
 import { attachmentPosition } from '../domain/positions';
-import { cablePath } from './geometry/coordinates';
+import { colorEachCable, paintAllCables, setAllCableStyles, setBends } from '../domain/cables';
+import { bendInsertIndex, cablePath, cableRoute, snapToGrid } from './geometry/coordinates';
 import { definitionOf, equipmentRegistry } from '../equipment/registry';
 import type { MeterSettings } from '../instruments/multimeter';
 import type { ScopeSettings } from '../instruments/oscilloscope';
 import { EquipmentBody, type ValueField } from './rendering/EquipmentBody';
+import { machineLabKinds } from './rendering/MachineLabEquipment';
 
 type Gesture =
   | { kind: 'wire'; start: ConnectionTarget; point: Point; origin: Point }
   | { kind: 'loose'; plugId: string; point: Point }
   | { kind: 'equipment'; equipment: Equipment; origin: Point; point: Point }
-  | { kind: 'pan'; origin: Point; camera: Point };
+  | { kind: 'pan'; origin: Point; camera: Point }
+  /** Dragging bend point `index` of a lead; `free` (Alt held) skips the grid snap. */
+  | {
+      kind: 'bend';
+      cableId: string;
+      index: number;
+      waypoints: Point[];
+      origin: Point;
+      point: Point;
+      free: boolean;
+    };
+/** The bend points of a lead while one of them is being dragged. */
+const draggedBends = (g: Extract<Gesture, { kind: 'bend' }>) =>
+  g.waypoints.map((w, i) => (i === g.index ? (g.free ? g.point : snapToGrid(g.point)) : w));
 interface Props {
   bench: BenchModel;
   circuit: ElectricalCircuit;
@@ -91,6 +117,7 @@ export function Workbench({
   const [holdingSpace, setHoldingSpace] = useState(false);
   const [cursor, setCursor] = useState<Point | null>(null);
   const [mode, setMode] = useState<'wire' | 'pan'>('wire');
+  const lastTap = useRef<{ cableId: string; index: number; time: number } | null>(null);
   const updateGesture = (next: Gesture | null) => {
     gestureRef.current = next;
     setGesture(next);
@@ -196,6 +223,8 @@ export function Workbench({
       ),
     };
   if (gesture?.kind === 'loose') displayBench = moveLoosePlug(bench, gesture.plugId, gesture.point);
+  if (gesture?.kind === 'bend')
+    displayBench = setBends(bench, gesture.cableId, draggedBends(gesture));
 
   function nearestTarget(point: Point): ConnectionTarget | null {
     const targetBench = gestureRef.current?.kind === 'loose' ? displayBench : bench;
@@ -268,7 +297,13 @@ export function Workbench({
         x: active.camera.x + point.x - active.origin.x,
         y: active.camera.y + point.y - active.origin.y,
       }));
-    } else updateGesture({ ...active, point: coordinates(event.clientX, event.clientY) });
+    } else if (active.kind === 'bend')
+      updateGesture({
+        ...active,
+        point: coordinates(event.clientX, event.clientY),
+        free: event.altKey,
+      });
+    else updateGesture({ ...active, point: coordinates(event.clientX, event.clientY) });
   }
   function pointerUp(event: ReactPointerEvent) {
     const active = gestureRef.current;
@@ -300,6 +335,36 @@ export function Workbench({
               : e,
           ),
         }));
+    } else if (active.kind === 'bend') {
+      const moved = Math.hypot(point.x - active.origin.x, point.y - active.origin.y) >= 4;
+      const existing =
+        active.waypoints.length ===
+        bench.cables.find((c) => c.id === active.cableId)?.routing.waypoints.length;
+      if (moved) {
+        const bends = draggedBends({ ...active, point, free: event.altKey });
+        commit((b) => setBends(b, active.cableId, bends));
+        lastTap.current = null;
+      } else if (existing) {
+        // A second tap on the same bend point removes it (pointer capture hides dblclick).
+        const tap = { cableId: active.cableId, index: active.index, time: event.timeStamp };
+        const last = lastTap.current;
+        if (
+          last &&
+          last.cableId === tap.cableId &&
+          last.index === tap.index &&
+          tap.time - last.time < 400
+        ) {
+          commit((b) =>
+            setBends(
+              b,
+              active.cableId,
+              active.waypoints.filter((_, j) => j !== active.index),
+            ),
+          );
+          onMessage('Bend point removed.');
+          lastTap.current = null;
+        } else lastTap.current = tap;
+      }
     } else if (active.kind === 'loose') {
       const target = nearestTarget(point);
       try {
@@ -315,6 +380,21 @@ export function Workbench({
     updateGesture(null);
     if (svg.current?.hasPointerCapture(event.pointerId))
       svg.current.releasePointerCapture(event.pointerId);
+  }
+  function startBend(event: ReactPointerEvent, cableId: string, index: number, waypoints: Point[]) {
+    event.stopPropagation();
+    event.preventDefault();
+    const point = coordinates(event.clientX, event.clientY);
+    updateGesture({
+      kind: 'bend',
+      cableId,
+      index,
+      waypoints,
+      origin: point,
+      point,
+      free: event.altKey,
+    });
+    svg.current?.setPointerCapture(event.pointerId);
   }
   function zoomBy(factor: number) {
     cancel();
@@ -374,6 +454,13 @@ export function Workbench({
   const meterEquipment = new Set(
     bench.equipment.filter((e) => definitionOf(e).kind === 'multimeter').map((e) => e.id),
   );
+  // Machine-lab equipment has black knurled binding posts with labels printed on its panel.
+  const postEquipment = new Set(
+    bench.equipment.filter((e) => machineLabKinds.includes(definitionOf(e).kind)).map((e) => e.id),
+  );
+  const allStraight =
+    bench.cables.length > 0 && bench.cables.every((c) => c.routing.style === 'straight');
+  const selectedCable = selected?.kind === 'cable' ? selected.id : null;
   const faultTerminals = new Set(
     result.diagnostics.filter((d) => d.severity === 'fault').flatMap((d) => d.terminalIds),
   );
@@ -420,6 +507,47 @@ export function Workbench({
               onClick={() => setColor(name as CableColor)}
             />
           ))}
+        </div>
+        <div className="tool-group" role="group" aria-label="Cable management">
+          <button
+            className="icon-button"
+            title={`Paint every lead ${color}`}
+            aria-label="Paint every lead the selected colour"
+            disabled={!bench.cables.length}
+            onClick={() => {
+              commit((b) => paintAllCables(b, color));
+              onMessage(`Every lead is now ${color}.`);
+            }}
+          >
+            <PaintBucket size={16} color={cableColors[color]} />
+          </button>
+          <button
+            className="icon-button"
+            title="Give each lead a different colour"
+            aria-label="Give each lead a different colour"
+            disabled={!bench.cables.length}
+            onClick={() => {
+              commit(colorEachCable);
+              onMessage('Each lead now has its own colour.');
+            }}
+          >
+            <Palette size={16} />
+          </button>
+          <button
+            className="icon-button"
+            title={allStraight ? 'Hang every lead in curves' : 'Lay every lead in straight runs'}
+            aria-label={
+              allStraight ? 'Hang every lead in curves' : 'Lay every lead in straight runs'
+            }
+            aria-pressed={allStraight}
+            disabled={!bench.cables.length}
+            onClick={() => {
+              commit((b) => setAllCableStyles(b, allStraight ? 'curved' : 'straight'));
+              onMessage(allStraight ? 'Leads hang in curves.' : 'Leads laid in straight runs.');
+            }}
+          >
+            <Spline size={16} />
+          </button>
         </div>
         <span className="toolbar-divider" />
         <div className="tool-group">
@@ -528,6 +656,7 @@ export function Workbench({
                 simulating={simulating}
                 scope={scopes?.[e.id]}
                 onScope={onScope}
+                onCommit={commit}
                 onDrag={(event, equipment) => {
                   if (mode === 'pan' || spaceHeld.current) return;
                   event.stopPropagation();
@@ -549,7 +678,7 @@ export function Workbench({
                 kind: 'plug-back',
                 plugId: c.plugIds[1],
               });
-              const path = cablePath(a, b, c.routing.slack);
+              const path = cableRoute(a, b, c.routing);
               const active = selected?.kind === 'cable' && selected.id === c.id;
               return (
                 <g
@@ -562,7 +691,13 @@ export function Workbench({
                   onPointerDown={(event) => {
                     if (mode === 'pan' || spaceHeld.current) return;
                     event.stopPropagation();
-                    select({ kind: 'cable', id: c.id });
+                    if (!active || event.button !== 0) return select({ kind: 'cable', id: c.id });
+                    // Dragging a selected lead pulls out a new bend point at the grab point.
+                    const at = coordinates(event.clientX, event.clientY);
+                    const index = bendInsertIndex(a, b, c.routing.waypoints, at);
+                    const waypoints = [...c.routing.waypoints];
+                    waypoints.splice(index, 0, at);
+                    startBend(event, c.id, index, waypoints);
                   }}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter') select({ kind: 'cable', id: c.id });
@@ -643,12 +778,23 @@ export function Workbench({
                       strokeDasharray="4 3"
                     />
                   )}
-                  <circle r="16" fill="#a8b2bb" stroke="#7e8a95" />
-                  <circle r="12" fill={cableColors[t.color]} stroke="#394137" strokeWidth=".7" />
-                  <circle r="6" fill="#1f271f" stroke="#909585" strokeWidth="1.5" />
-                  <text y="31" textAnchor="middle" className="terminal-label">
-                    {t.label}
-                  </text>
+                  {postEquipment.has(t.equipmentId) ? (
+                    <BindingPost small={/\.TG[12]$/.test(t.id)} />
+                  ) : (
+                    <>
+                      <circle r="16" fill="#a8b2bb" stroke="#7e8a95" />
+                      <circle
+                        r="12"
+                        fill={cableColors[t.color]}
+                        stroke="#394137"
+                        strokeWidth=".7"
+                      />
+                      <circle r="6" fill="#1f271f" stroke="#909585" strokeWidth="1.5" />
+                      <text y="31" textAnchor="middle" className="terminal-label">
+                        {t.label}
+                      </text>
+                    </>
+                  )}
                   {stackCount > 0 && (
                     <g transform="translate(25 -20)">
                       <rect x="-8" y="-9" width="17" height="16" rx="5" fill="#4e6985" />
@@ -764,6 +910,31 @@ export function Workbench({
                     </g>
                   );
                 })}
+            {selectedCable &&
+              displayBench.cables
+                .find((c) => c.id === selectedCable)
+                ?.routing.waypoints.map((w, i, all) => (
+                  <circle
+                    key={i}
+                    className="bend-handle"
+                    data-bend={i}
+                    cx={w.x}
+                    cy={w.y}
+                    r="7"
+                    fill="#f7faf0"
+                    stroke="#253326"
+                    strokeWidth="2"
+                    aria-label={`Bend point ${i + 1}`}
+                    onPointerDown={(event) => {
+                      if (event.button !== 0 || mode === 'pan' || spaceHeld.current) return;
+                      startBend(event, selectedCable, i, all);
+                    }}
+                  >
+                    <title>
+                      Drag to move · double-click to remove · hold Alt to place off the grid
+                    </title>
+                  </circle>
+                ))}
             {keyboardStart && cursor && !gesture && (
               <path
                 d={cablePath(attachmentPosition(displayBench, keyboardStart), cursor, 45)}
@@ -813,5 +984,32 @@ export function Workbench({
         </div>
       </div>
     </section>
+  );
+}
+
+/** Black knurled 4 mm binding post seen from above (the small TG sockets are recessed). */
+function BindingPost({ small }: { small: boolean }) {
+  if (small)
+    return (
+      <>
+        <circle r="10" fill="#9aa1a6" stroke="#6c757b" />
+        <circle r="5.5" fill="#15181a" />
+      </>
+    );
+  return (
+    <>
+      <circle r="16" fill="#151719" stroke="#000" />
+      {Array.from({ length: 16 }, (_, i) => (
+        <path
+          key={i}
+          d="M0 -15.5V-11"
+          stroke="#5b6166"
+          strokeWidth="1.6"
+          transform={`rotate(${i * 22.5})`}
+        />
+      ))}
+      <circle r="10" fill="#202326" />
+      <circle r="5.5" fill="#050606" stroke="#3a3f43" />
+    </>
   );
 }

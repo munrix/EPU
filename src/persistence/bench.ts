@@ -3,11 +3,23 @@ import type { Component, ValueField, Workbench } from '../domain/models';
 import { definitionOf, equipmentRegistry, instantiateEquipment } from '../equipment/registry';
 import { defaultMeterSettings, meterRanges, migrateRangeId } from '../instruments/multimeter';
 import { defaultExperiment, experimentById } from '../experiments/catalog';
+import { defaultMachineState } from '../machines/dcGenerator';
 
 const id = z.string().min(1).max(160);
 const finite = z.number().finite();
 const point = z.object({ x: finite.min(-10000).max(10000), y: finite.min(-10000).max(10000) });
-const color = z.enum(['red', 'black', 'yellow', 'blue', 'green']);
+const color = z.enum([
+  'red',
+  'black',
+  'yellow',
+  'blue',
+  'green',
+  'orange',
+  'purple',
+  'brown',
+  'white',
+  'grey',
+]);
 const attachment = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('terminal'), terminalId: id }),
   z.object({ kind: z.literal('plug-back'), plugId: id }),
@@ -22,7 +34,11 @@ const cables = z
       id,
       color,
       plugIds: z.tuple([id, id]),
-      routing: z.object({ slack: finite.min(0).max(500), waypoints: z.array(point).max(100) }),
+      routing: z.object({
+        slack: finite.min(0).max(500),
+        waypoints: z.array(point).max(100),
+        style: z.enum(['curved', 'straight']).optional(),
+      }),
     }),
   )
   .max(1000);
@@ -97,6 +113,23 @@ const schema = z.object({
   internalLinks: z.array(z.tuple([id, id])).max(2000),
   plugs,
   cables,
+  machines: z
+    .record(
+      z.object({
+        peakFieldAmps: finite.min(0).max(10),
+        meterMode: z.enum(['motor', 'generator']),
+      }),
+    )
+    .optional(),
+  threePhase: z
+    .record(
+      z.object({
+        on: z.boolean(),
+        trip: z.string().max(300).optional(),
+        hz: finite.min(0).max(60).optional(),
+      }),
+    )
+    .optional(),
 });
 
 /** Schema 1 and 2 saves hold the Phase 1 inventory. Rebuild it and keep every physical choice. */
@@ -282,6 +315,21 @@ export function parseBench(raw: unknown): Workbench {
     .map((e) => e.id);
   if (!sameSet(Object.keys(bench.instrumentSettings), meters))
     throw new Error('Instrument settings do not match the multimeters on the bench.');
+  // Machine state belongs to motor–generator sets only; a set without saved state starts at rest.
+  const sets = bench.equipment.filter((e) => definitionOf(e).kind === 'mg-set').map((e) => e.id);
+  if (Object.keys(bench.machines ?? {}).some((id) => !sets.includes(id)))
+    throw new Error('Machine state does not match the machines on the bench.');
+  const machines = sets.length
+    ? Object.fromEntries(sets.map((id) => [id, bench.machines?.[id] ?? defaultMachineState]))
+    : undefined;
+  const supplies = bench.equipment
+    .filter((e) => ['three-phase-supply', 'frequency-inverter'].includes(definitionOf(e).kind))
+    .map((e) => e.id);
+  if (Object.keys(bench.threePhase ?? {}).some((id) => !supplies.includes(id)))
+    throw new Error('Supply state does not match the three-phase supplies on the bench.');
+  const threePhase = supplies.length
+    ? Object.fromEntries(supplies.map((id) => [id, bench.threePhase?.[id] ?? { on: false }]))
+    : undefined;
   const experiment = experimentById(bench.experimentId);
   if (!experiment || experiment.profileId !== bench.profileId)
     throw new Error('This file is for an experiment this version does not provide.');
@@ -322,6 +370,8 @@ export function parseBench(raw: unknown): Workbench {
     terminals: normalized.flatMap((n) => n.terminals),
     components,
     internalLinks,
+    ...(machines ? { machines } : {}),
+    ...(threePhase ? { threePhase } : {}),
   };
 }
 
@@ -334,7 +384,18 @@ export function loadBench(experimentId: string): Workbench | null {
     const raw = localStorage.getItem(benchKey(experimentId));
     if (raw) {
       const bench = parseBench(JSON.parse(raw));
-      return bench.experimentId === experimentId ? bench : null;
+      if (bench.experimentId !== experimentId) return null;
+      // A lab station whose equipment has changed since it was saved starts afresh, so a new
+      // device (for example the R S T supply) is never missing from an old save.
+      const experiment = experimentById(experimentId);
+      if (experiment?.station) {
+        // By kind, so DCM 01's randomly chosen machine wiring still counts as the same bench.
+        const kinds = (b: Workbench) => b.equipment.map((e) => definitionOf(e).kind);
+        const expected = kinds(experiment.createBench());
+        const saved = kinds(bench);
+        if (expected.sort().join() !== saved.sort().join()) return null;
+      }
+      return bench;
     }
     const legacy = experimentId === 'dc-foundations' ? localStorage.getItem(LEGACY_KEY) : null;
     return legacy ? parseBench(JSON.parse(legacy)) : null;

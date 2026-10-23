@@ -1,16 +1,32 @@
 import type { MeterSettings } from '../instruments/multimeter';
+import type { MachineCircuit, MachineReading, MachineState } from '../machines/dcGenerator';
+import type { PolyphaseSupply } from '../electrical/circuit/polyphase';
+export interface ThreePhaseState {
+  /** Mains breaker closed, or inverter running. */
+  on: boolean;
+  /** Inverter output frequency setting. */
+  hz?: number;
+  /** Why the breaker last tripped, shown until it is switched on again. */
+  trip?: string;
+}
 export type Id = string;
 export interface Point {
   x: number;
   y: number;
 }
-export type CableColor = 'red' | 'black' | 'yellow' | 'blue' | 'green';
+export type CableColor =
+  'red' | 'black' | 'yellow' | 'blue' | 'green' | 'orange' | 'purple' | 'brown' | 'white' | 'grey';
 export const cableColors: Record<CableColor, string> = {
   red: '#cf5149',
   black: '#3d4348',
   yellow: '#d4a62f',
   blue: '#417eae',
   green: '#458762',
+  orange: '#e0812f',
+  purple: '#8a5bb0',
+  brown: '#8b5e3c',
+  white: '#e9ecee',
+  grey: '#8f989f',
 };
 
 export interface Terminal {
@@ -39,7 +55,11 @@ export interface Cable {
   id: Id;
   color: CableColor;
   plugIds: [Id, Id];
-  routing: { slack: number; waypoints: Point[] };
+  /**
+   * How the lead is laid: its sag, the bend points it passes through, and whether it hangs in a
+   * curve or runs straight between bends (the default is a curve).
+   */
+  routing: { slack: number; waypoints: Point[]; style?: 'curved' | 'straight' };
 }
 
 /** Where a component comes from. Instrument components are derived from settings, never saved. */
@@ -54,6 +74,8 @@ export type Component =
       origin?: ComponentOrigin;
       /** A voltmeter input: a real conductive path, but never a load's return path. */
       measurementInput?: boolean;
+      /** One section of a tapped part (rheostat end-to-slider, switch pole): an unused section is normal. */
+      section?: boolean;
     }
   | {
       id: Id;
@@ -161,7 +183,13 @@ export type EquipmentKind =
   | 'load'
   | 'dc-machine'
   | 'lamp'
-  | 'variac';
+  | 'variac'
+  | 'mg-set'
+  | 'slide-rheostat'
+  | 'supply-console'
+  | 'load-switch'
+  | 'three-phase-supply'
+  | 'frequency-inverter';
 export interface TerminalTemplate {
   key: string;
   label: string;
@@ -178,6 +206,7 @@ export type ComponentTemplate =
       b: string;
       resistanceOhms: number;
       measurementInput?: boolean;
+      section?: boolean;
     }
   | {
       key: string;
@@ -258,6 +287,10 @@ export interface Workbench {
   internalLinks: [Id, Id][];
   plugs: Plug[];
   cables: Cable[];
+  /** Magnetic history and meter switch of motor–generator sets, by equipment ID. */
+  machines?: Record<Id, MachineState>;
+  /** Breaker state of three-phase R S T supplies, by equipment ID. */
+  threePhase?: Record<Id, ThreePhaseState>;
 }
 
 export interface ElectricalNode {
@@ -294,6 +327,10 @@ export interface ElectricalCircuit {
   protections: ProtectionDevice[];
   /** The net bonded to protective earth, when any socket on the bench is earthed. */
   earthNodeId?: Id;
+  /** Rotating machines whose EMF depends on the solved currents. */
+  machines?: MachineCircuit[];
+  /** Three-phase supplies, solved as phasors on the AC side of the bench. */
+  polyphase?: PolyphaseSupply[];
 }
 export type DiagnosticCode =
   | 'short-circuit'
@@ -304,6 +341,7 @@ export type DiagnosticCode =
   | 'solver-error'
   | 'invalid-parameter'
   | 'overcurrent'
+  | 'machine'
   | 'simulating';
 export interface Diagnostic {
   code: DiagnosticCode;
@@ -346,6 +384,14 @@ export interface SimulationResult {
   waveforms?: Waveforms;
   /** RMS currents over the window, for protection devices. */
   rmsCurrents?: Record<Id, number>;
+  /** Operating point of each rotating machine, by equipment ID. */
+  machines?: Record<Id, MachineReading>;
+  /** Three-phase supplies that see a short circuit (their breakers trip). */
+  polyphaseShorts?: { supplyId: Id; between: string[] }[];
+  /** Supply frequency reaching each motor–generator set's prime mover. */
+  motorHz?: Record<Id, number>;
+  /** Supplies whose motor protection sees locked-rotor current. */
+  polyphaseOverloads?: { supplyId: Id; reason: string }[];
 }
 export interface SolverAdapter {
   id: string;

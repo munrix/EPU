@@ -39,7 +39,13 @@ export function GuidePanel({
   ctx,
   onRecord,
   onClearColumn,
+  onPreset,
+  activePart,
+  connectedPart,
 }: {
+  onPreset(presetId: string): void;
+  activePart: string | null;
+  connectedPart: string | null;
   experiment: ExperimentDefinition;
   notebook: NotebookState;
   bench: Workbench;
@@ -50,8 +56,28 @@ export function GuidePanel({
   onClearColumn(tableId: string, column: string): void;
 }) {
   const done = new Set(notebook.achieved);
-  const total = experiment.steps.length;
-  const complete = total > 0 && done.size === total;
+  // With parts, the guide follows the selected part: its steps, then its tables first.
+  const part = experiment.parts?.find((p) => p.id === activePart);
+  const shown = part ? part.steps : experiment.steps.map((_, i) => i);
+  const total = shown.length;
+  const doneShown = shown.filter((i) => done.has(i)).length;
+  const complete = total > 0 && doneShown === total;
+  const partPill = (id: string) =>
+    connectedPart === id ? (
+      <span className="part-pill live">Wired now · recording here</span>
+    ) : (
+      <span className="part-pill">Not wired</span>
+    );
+  const renderTable = (table: ExperimentTable) => (
+    <ResultsTable
+      key={table.id}
+      table={table}
+      cells={notebook.tables?.[table.id] ?? {}}
+      current={safe(() => table.column(ctx))}
+      onRecord={() => onRecord(table.id)}
+      onClear={(column) => onClearColumn(table.id, column)}
+    />
+  );
   return (
     <>
       <span className="experiment-tag">
@@ -67,43 +93,107 @@ export function GuidePanel({
       )}
       {total > 0 && (
         <>
+          {part && (
+            <div className="part-heading" data-testid="guide-part">
+              <span className="part-letter">{part.label}</span>
+              <span>
+                <strong>
+                  Part {part.label} · {part.title}
+                </strong>
+                <small>{part.summary}</small>
+              </span>
+              {partPill(part.id)}
+            </div>
+          )}
           <div className="progress-track">
-            <span style={{ width: `${(done.size / total) * 100}%` }} />
+            <span style={{ width: `${(doneShown / total) * 100}%` }} />
           </div>
           <div className="progress-copy">
-            <span>{complete ? 'Experiment complete' : 'Your progress'}</span>
             <span>
-              {done.size} / {total}
+              {complete
+                ? part
+                  ? `Part ${part.label} complete`
+                  : 'Experiment complete'
+                : 'Your progress'}
+            </span>
+            <span>
+              {doneShown} / {total}
             </span>
           </div>
           <ol className="steps">
-            {experiment.steps.map((step, i) => (
-              <li key={step.text} className={done.has(i) ? 'done' : ''}>
-                <span className="step-number">{done.has(i) ? <Check size={13} /> : i + 1}</span>
-                <span>
-                  {step.text}
-                  {notebook.records[i] && (
-                    <span className="record" data-testid={`record-${i}`}>
-                      {notebook.records[i]}
+            {shown
+              .map((i) => experiment.steps[i])
+              .map((step, n) => {
+                const i = shown[n];
+                return (
+                  <li key={step.text} className={done.has(i) ? 'done' : ''}>
+                    <span className="step-number">{done.has(i) ? <Check size={13} /> : n + 1}</span>
+                    <span>
+                      {step.text}
+                      {notebook.records[i] && (
+                        <span className="record" data-testid={`record-${i}`}>
+                          {notebook.records[i]}
+                        </span>
+                      )}
+                      {!done.has(i) && step.hint && <span className="step-hint">{step.hint}</span>}
                     </span>
-                  )}
-                  {!done.has(i) && step.hint && <span className="step-hint">{step.hint}</span>}
-                </span>
-              </li>
-            ))}
+                  </li>
+                );
+              })}
           </ol>
         </>
       )}
-      {experiment.tables?.map((table) => (
-        <ResultsTable
-          key={table.id}
-          table={table}
-          cells={notebook.tables?.[table.id] ?? {}}
-          current={safe(() => table.column(ctx))}
-          onRecord={() => onRecord(table.id)}
-          onClear={(column) => onClearColumn(table.id, column)}
-        />
-      ))}
+      {experiment.presets?.length && !experiment.parts ? (
+        <div className="presets">
+          <div className="section-label">PRESET CONNECTIONS</div>
+          {experiment.presets.map((p) => (
+            <button
+              key={p.id}
+              className="record-button"
+              data-testid={`preset-${p.id}`}
+              title={p.description}
+              onClick={() => onPreset(p.id)}
+            >
+              Wire {p.title}
+            </button>
+          ))}
+          <p className="step-hint">
+            Replaces the bench with the figure already wired, every supply off. Undo brings your own
+            wiring back.
+          </p>
+        </div>
+      ) : null}
+      {experiment.parts && part ? (
+        <>
+          <div className="part-tables-heading">
+            <span className="section-label">
+              PART {part.label} TABLES · {part.title.toUpperCase()}
+            </span>
+            {partPill(part.id)}
+          </div>
+          {experiment.tables?.filter((t) => part.tableIds.includes(t.id)).map(renderTable)}
+          {experiment.parts
+            .filter((p) => p.id !== part.id)
+            .map((p) => {
+              const tables = experiment.tables?.filter((t) => p.tableIds.includes(t.id)) ?? [];
+              const recorded = tables.reduce(
+                (n, t) => n + Object.keys(notebook.tables?.[t.id] ?? {}).length,
+                0,
+              );
+              return (
+                <details key={p.id} className="other-part">
+                  <summary>
+                    Part {p.label} tables · {p.title.toLowerCase()} ({recorded} recorded)
+                    {connectedPart === p.id && <span className="part-pill live">Wired now</span>}
+                  </summary>
+                  {tables.map(renderTable)}
+                </details>
+              );
+            })}
+        </>
+      ) : (
+        experiment.tables?.map(renderTable)
+      )}
       {experiment.theoryValues && (
         <div className="theory-values">
           <div className="section-label">THEORY · FROM THE SHEET’S FORMULAS</div>

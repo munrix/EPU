@@ -33,6 +33,7 @@ interface Props {
   simulating?: boolean;
   scope?: ScopeSettings;
   onScope?(scopeId: string, settings: ScopeSettings): void;
+  onCommit?(change: (bench: Workbench) => Workbench): void;
 }
 function Screw({ x, y }: { x: number; y: number }) {
   return (

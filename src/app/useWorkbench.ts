@@ -3,10 +3,17 @@ import type { SimulationResult, Workbench } from '../domain/models';
 import { experimentById } from '../experiments/catalog';
 import { assembleCircuit } from '../electrical/circuit/assemble';
 import { applyTrips, settleProtection, transientTrips } from '../electrical/circuit/protection';
-import { linearDcSolver } from '../electrical/solvers/linear-dc';
+import { benchSolver } from '../electrical/solvers/machine-dc';
+import { settleMachines } from '../electrical/circuit/machines';
 import { needsTransient } from '../electrical/solvers/ngspice/transient';
 import { solveTransient } from '../electrical/solvers/ngspice/client';
 import { lastExperimentId, loadBench, saveBench } from '../persistence/bench';
+
+/** Every edit settles protection devices and machine magnetic history before it is kept. */
+const settle = (bench: Workbench) => {
+  const protectedBench = settleProtection(bench);
+  return { ...protectedBench, bench: settleMachines(protectedBench.bench) };
+};
 
 interface History {
   past: Workbench[];
@@ -19,7 +26,7 @@ const initialBench = (experimentId: string) =>
 export function useWorkbench() {
   const [history, setHistory] = useState<History>(() => ({
     past: [],
-    present: settleProtection(initialBench(lastExperimentId())).bench,
+    present: settle(initialBench(lastExperimentId())).bench,
     future: [],
   }));
   const [saved, setSaved] = useState(true);
@@ -31,7 +38,7 @@ export function useWorkbench() {
       if (next === h.present) return h;
       return {
         past: [...h.past.slice(-49), h.present],
-        present: settleProtection(next).bench,
+        present: settle(next).bench,
         future: [],
       };
     });
@@ -63,13 +70,13 @@ export function useWorkbench() {
     setHistory((h) => {
       if (h.present.experimentId === experimentId) return h;
       saveBench(h.present);
-      return { past: [], present: settleProtection(initialBench(experimentId)).bench, future: [] };
+      return { past: [], present: settle(initialBench(experimentId)).bench, future: [] };
     });
   }, []);
   /** Imports replace the bench. Another experiment's file switches to that experiment. */
   const replaceBench = useCallback((next: Workbench) => {
     setHistory((h) => {
-      const present = settleProtection(next).bench;
+      const present = settle(next).bench;
       if (next.experimentId === h.present.experimentId)
         return { past: [...h.past.slice(-49), h.present], present, future: [] };
       saveBench(h.present);
@@ -86,6 +93,8 @@ export function useWorkbench() {
     instruments: bench.instrumentSettings,
     terminals: bench.terminals.map((t) => t.id),
     internalLinks: bench.internalLinks,
+    machines: bench.machines,
+    threePhase: bench.threePhase,
     cables: bench.cables.map((c) => c.plugIds),
     plugs: bench.plugs.map((p) => ({
       id: p.id,
@@ -96,7 +105,7 @@ export function useWorkbench() {
   const circuit = useMemo(() => assembleCircuit(bench), [electricalKey]); // explicit electrical dependency
   const transient = needsTransient(circuit);
   const dcResult = useMemo(
-    () => (transient ? null : linearDcSolver.solve(circuit, 0)),
+    () => (transient ? null : benchSolver.solve(circuit, 0)),
     [circuit, transient],
   );
   // Transient benches are simulated by ngspice in a worker. Each request carries a revision;

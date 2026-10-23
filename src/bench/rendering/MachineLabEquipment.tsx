@@ -1,0 +1,1177 @@
+import { useRef, useState, type PointerEvent, type ReactNode } from 'react';
+import type { Workbench } from '../../domain/models';
+import { definitionOf, equipmentComponents } from '../../equipment/registry';
+import {
+  INVERTER_DEFAULT_HZ,
+  INVERTER_MAX_HZ,
+  MG_PANEL,
+  MOTOR_BOX,
+  MOTOR_BOX_AT,
+  RHEOSTATS,
+  sectionOhms,
+  setSlider,
+  sliderPosition,
+  SWITCH_CLOSED_OHMS,
+  SWITCH_OPEN_OHMS,
+} from '../../equipment/machineLab';
+import { defaultMachineState, type MachineState } from '../../machines/dcGenerator';
+import { DeviceValue, ValueKnob } from './DeviceControls';
+import type { LabProps } from './LabEquipment';
+
+/** Equipment of the DC machine lab, drawn from the photos in references/machine-lab. */
+export const machineLabKinds = [
+  'mg-set',
+  'slide-rheostat',
+  'supply-console',
+  'load-switch',
+  'three-phase-supply',
+  'frequency-inverter',
+];
+
+const press = (action: () => void, label: string) => ({
+  role: 'button',
+  tabIndex: 0,
+  'aria-label': label,
+  onPointerDown: (e: PointerEvent) => e.stopPropagation(),
+  onClick: action,
+  onKeyDown: (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      action();
+    }
+  },
+});
+function Screw({ x, y }: { x: number; y: number }) {
+  return (
+    <g transform={`translate(${x} ${y})`}>
+      <circle r="4.5" fill="#c9ced1" stroke="#858d92" />
+      <path d="M-2.6 0H2.6" stroke="#5f686e" strokeWidth="1.2" />
+    </g>
+  );
+}
+
+export function MachineLabBody({ kind, w, h }: { kind: string; w: number; h: number }) {
+  if (kind === 'mg-set')
+    return (
+      <>
+        <rect width={w} height={h} rx="8" fill="#e7e9ea" stroke="#b9c0c4" />
+        <rect x="20" y="258" width={w - 40} height="26" rx="3" fill="#a9b2b8" />
+      </>
+    );
+  if (kind === 'slide-rheostat')
+    return <rect width={w} height={h} rx="6" fill="#eef0f0" stroke="#c3c8cb" />;
+  if (kind === 'supply-console')
+    return <rect width={w} height={h} rx="8" fill="#3f5f80" stroke="#2c4660" strokeWidth="2" />;
+  return <rect width={w} height={h} rx="6" fill="#d6d9da" stroke="#9aa2a6" strokeWidth="1.5" />;
+}
+
+export function MachineLabArt(props: LabProps): ReactNode {
+  const kind = definitionOf(props.equipment).kind;
+  if (kind === 'mg-set') return <MgSet {...props} />;
+  if (kind === 'slide-rheostat') return <SlideRheostat {...props} />;
+  if (kind === 'supply-console') return <SupplyConsole {...props} />;
+  if (kind === 'load-switch') return <LoadSwitch {...props} />;
+  if (kind === 'three-phase-supply') return <ThreePhaseSupply {...props} />;
+  if (kind === 'frequency-inverter') return <FrequencyInverter {...props} />;
+  return null;
+}
+
+const machineState = (bench: Workbench, id: string): MachineState =>
+  bench.machines?.[id] ?? defaultMachineState;
+const setMachine =
+  (id: string, change: Partial<MachineState>) =>
+  (b: Workbench): Workbench => ({
+    ...b,
+    machines: { ...b.machines, [id]: { ...machineState(b, id), ...change } },
+  });
+
+/** Esselte Studium motor–generator set: DC machine, coupling, prime mover, terminal panel. */
+function MgSet({ equipment: e, bench, result, onCommit }: LabProps) {
+  const state = machineState(bench, e.id);
+  const reading = result.machines?.[e.id];
+  const rpm = reading?.rpm ?? 0;
+  const commit = (change: Partial<MachineState>) => onCommit?.(setMachine(e.id, change));
+  const P = MG_PANEL;
+  const B = MOTOR_BOX_AT;
+  // Speed meter: 0–30 (×100 r/min) over a 140° arc, fed by the tachogenerator. The toggle sets
+  // its polarity: GENERATOR reads the forward direction, MOTOR the reverse. Driven the wrong way,
+  // the needle rests on its zero stop.
+  const forward = state.meterMode === 'generator' ? rpm : -rpm;
+  const needle = 200 + (Math.min(3000, Math.max(0, forward)) / 3000) * 140;
+  const spin = Math.abs(rpm) > 1 ? Math.max(0.12, 240 / Math.abs(rpm)) : 0;
+  const status = reading?.motorStatus ?? 'off';
+  const volts = reading?.windingVolts ?? [0, 0, 0];
+  const motorWarning = status === 'humming' || status === 'stalled' || Math.max(...volts) > 253;
+  const motorText =
+    status === 'running'
+      ? `${rpm < 0 ? 'Running backwards' : 'Running'} · ${Math.abs(Math.round(rpm))} rpm`
+      : status === 'humming'
+        ? 'Humming, not turning'
+        : status === 'stalled'
+          ? 'Stalled'
+          : 'Stopped (no supply)';
+  const blue = '#5f86a8',
+    blueDark = '#486d8e';
+  return (
+    <g>
+      {/* DC machine (generator), cradle-mounted */}
+      <g pointerEvents="none">
+        <rect
+          x="58"
+          y="64"
+          width="410"
+          height="186"
+          rx="34"
+          fill={blue}
+          stroke={blueDark}
+          strokeWidth="2"
+        />
+        {[78, 384].map((x) => (
+          <g key={x}>
+            <rect x={x} y="86" width="70" height="142" rx="6" fill={blueDark} />
+            {Array.from({ length: 11 }, (_, i) => (
+              <path
+                key={i}
+                d={`M${x + 8} ${96 + i * 12}H${x + 62}`}
+                stroke="#2f4a63"
+                strokeWidth="3"
+              />
+            ))}
+          </g>
+        ))}
+        <rect x="228" y="78" width="96" height="30" rx="2" fill="#e4e1d6" stroke="#9e9a8c" />
+        <text x="276" y="97" textAnchor="middle" fontSize="11" fontWeight="800" fill="#2a2a2a">
+          ASEA
+        </text>
+        <rect x="240" y="168" width="58" height="56" rx="4" fill={blueDark} />
+        <text x="263" y="240" textAnchor="middle" className="scope-print" fill="#e8eef3">
+          DC MACHINE
+        </text>
+        {/* Bearing pedestal and shaft */}
+        <rect x="468" y="132" width="52" height="66" rx="8" fill="#3d4246" />
+        <rect x="470" y="150" width="150" height="20" fill="#9ca5ab" />
+      </g>
+      {/* Coupling: disc and rubber elements, turning with the shaft */}
+      <g transform="translate(560 160)" pointerEvents="none">
+        <g>
+          {spin > 0 && (
+            <animateTransform
+              attributeName="transform"
+              type="rotate"
+              from="0"
+              to={rpm < 0 ? '-360' : '360'}
+              dur={`${spin}s`}
+              repeatCount="indefinite"
+            />
+          )}
+          <circle r="40" fill="#e9ecee" stroke="#8d969c" strokeWidth="2" />
+          <rect x="-6" y="-40" width="12" height="80" fill="#24292d" />
+          <rect x="-40" y="-6" width="80" height="12" fill="#d96f2b" />
+        </g>
+        <circle r="7" fill="#5a636a" />
+      </g>
+      {/* Prime mover: fan-cooled motor with its terminal box on top */}
+      <g pointerEvents="none">
+        <rect
+          x="612"
+          y="74"
+          width="270"
+          height="176"
+          rx="26"
+          fill={blue}
+          stroke={blueDark}
+          strokeWidth="2"
+        />
+        {Array.from({ length: 9 }, (_, i) => (
+          <path
+            key={i}
+            d={`M632 ${96 + i * 17}H866`}
+            stroke={blueDark}
+            strokeWidth="5"
+            strokeLinecap="round"
+          />
+        ))}
+        <rect
+          x="870"
+          y="86"
+          width="72"
+          height="152"
+          rx="30"
+          fill="#4c7397"
+          stroke="#36597a"
+          strokeWidth="2"
+        />
+        {/* Rating plate (values assumed: the real plate is not photographed) */}
+        <rect x="700" y="196" width="136" height="44" rx="2" fill="#e4e1d6" stroke="#9e9a8c" />
+        <text x="768" y="210" textAnchor="middle" fontSize="8" fontWeight="700" fill="#2a2a2a">
+          3~ MOTOR · 50 Hz · 1.1 kW
+        </text>
+        <text x="768" y="222" textAnchor="middle" fontSize="8" fill="#2a2a2a">
+          Δ 220 V / Y 380 V · 4.5 / 2.6 A
+        </text>
+        <text x="768" y="234" textAnchor="middle" fontSize="8" fill="#2a2a2a">
+          1400 r/min (assumed)
+        </text>
+      </g>
+
+      {/* Prime-mover terminal box: W2 U2 V2 behind, U1 V1 W1 in front */}
+      <g pointerEvents="none">
+        <rect
+          x={B.x}
+          y={B.y}
+          width={B.width}
+          height={B.height}
+          rx="6"
+          fill="#53789b"
+          stroke="#36597a"
+          strokeWidth="2"
+        />
+        <rect
+          x={B.x + 12}
+          y={B.y + 8}
+          width={B.width - 24}
+          height={B.height - 16}
+          rx="3"
+          fill="#3f6283"
+        />
+        {MOTOR_BOX.map(([key, x, y]) => (
+          <text
+            key={key}
+            x={x - 20}
+            y={y + 4}
+            textAnchor="end"
+            fontSize="11"
+            fontWeight="700"
+            fill="#f3f6f8"
+          >
+            {key}
+          </text>
+        ))}
+      </g>
+      {/* Terminal panel on the front of the bed */}
+      <rect
+        x={P.x}
+        y={P.y}
+        width={P.width}
+        height={P.height}
+        rx="4"
+        fill="#c8cdd0"
+        stroke="#949ca1"
+        pointerEvents="none"
+      />
+      {[
+        [P.x + 14, P.y + 14],
+        [P.x + P.width - 14, P.y + 14],
+        [P.x + 14, P.y + P.height - 14],
+        [P.x + P.width - 14, P.y + P.height - 14],
+        [680, P.y + 40],
+        [520, P.y + P.height - 16],
+      ].map(([x, y]) => (
+        <Screw key={`${x}-${y}`} x={x} y={y} />
+      ))}
+      <g transform={`translate(${P.x + 40} ${P.y + 22})`} pointerEvents="none">
+        <rect width="156" height="150" rx="4" fill="#dcd6bf" stroke="#9c9478" strokeWidth="3" />
+        <rect x="8" y="8" width="140" height="134" fill="#efe9d2" />
+        {Array.from({ length: 31 }, (_, i) => {
+          const a = ((200 + (i / 30) * 140) * Math.PI) / 180;
+          const r2 = i % 5 ? 56 : 50;
+          return (
+            <path
+              key={i}
+              d={`M${78 + Math.cos(a) * 62} ${100 + Math.sin(a) * 62}L${78 + Math.cos(a) * r2} ${100 + Math.sin(a) * r2}`}
+              stroke="#2b2b2b"
+              strokeWidth={i % 5 ? 0.8 : 1.4}
+            />
+          );
+        })}
+        {[0, 10, 20, 30].map((v) => {
+          const a = ((200 + (v / 30) * 140) * Math.PI) / 180;
+          return (
+            <text
+              key={v}
+              x={78 + Math.cos(a) * 40}
+              y={104 + Math.sin(a) * 40}
+              textAnchor="middle"
+              fontSize="12"
+              fill="#2b2b2b"
+            >
+              {v}
+            </text>
+          );
+        })}
+        <text x="78" y="122" textAnchor="middle" fontSize="12" fill="#2b2b2b">
+          r/min
+        </text>
+        <text x="78" y="134" textAnchor="middle" fontSize="8" fill="#2b2b2b">
+          ×100
+        </text>
+        <g
+          transform={`translate(78 100) rotate(${needle})`}
+          style={{ transition: 'transform .6s ease-out' }}
+        >
+          <path d="M0 0H58" stroke="#1d1d1d" strokeWidth="2.2" strokeLinecap="round" />
+        </g>
+        <circle cx="78" cy="100" r="7" fill="#f2f2f2" stroke="#666" />
+      </g>
+      <text
+        x={P.x + 118}
+        y={P.y + 190}
+        textAnchor="middle"
+        className="scope-print"
+        data-testid={`${e.id}-rpm`}
+      >
+        {Math.round(rpm)} rpm
+      </text>
+      {/* MOTOR / GENERATOR toggle */}
+      <g
+        transform={`translate(${P.x + 270} ${P.y + 96})`}
+        {...press(
+          () => commit({ meterMode: state.meterMode === 'generator' ? 'motor' : 'generator' }),
+          `Speed meter switch: ${state.meterMode === 'generator' ? 'GENERATOR' : 'MOTOR'}`,
+        )}
+        className="power-switch"
+      >
+        <title>MOTOR (+) / GENERATOR (−). Sets which way the speed meter reads.</title>
+        <text y="-46" textAnchor="middle" fontSize="11" fill="#2b2b2b">
+          MOTOR
+        </text>
+        <text y="-32" textAnchor="middle" fontSize="13" fill="#2b2b2b">
+          +
+        </text>
+        <circle r="13" fill="#d9dcde" stroke="#7c858b" strokeWidth="2" />
+        <path
+          d={state.meterMode === 'generator' ? 'M0 0L4 26' : 'M0 0L4 -26'}
+          stroke="#e6e9eb"
+          strokeWidth="6"
+          strokeLinecap="round"
+        />
+        <circle r="5" fill="#8a9298" />
+        <text y="44" textAnchor="middle" fontSize="13" fill="#2b2b2b">
+          −
+        </text>
+        <text y="58" textAnchor="middle" fontSize="11" fill="#2b2b2b">
+          GENERATOR
+        </text>
+      </g>
+      {/* Socket columns: raised strips, joining lines and winding symbols as printed */}
+      <g pointerEvents="none">
+        {[520, 620].map((x, i) => (
+          <path
+            key={x}
+            d={`M${x - 18} ${P.y + 18 + i * 16}L${x + 18} ${P.y + 18 + i * 16}L${x + 18} ${P.y + 186}L${x - 18} ${P.y + 186}Z`}
+            fill="#b2b9be"
+          />
+        ))}
+        {(['F', 'A', 'D', 'TG'] as const).map((w, n) => {
+          const y1 = P.y + 38 + n * 46 - (w === 'TG' ? 6 : 0);
+          const y2 = P.y + 38 + n * 46 + (w === 'TG' ? 6 : 16);
+          const mx = 570,
+            my = (y1 + y2) / 2;
+          return (
+            <g key={w}>
+              <path d={`M520 ${y1}L620 ${y2}`} stroke="#1f1f1f" strokeWidth="1.6" />
+              {w === 'A' && (
+                <circle cx={mx} cy={my} r="11" fill="#c8cdd0" stroke="#1f1f1f" strokeWidth="1.6" />
+              )}
+              {(w === 'F' || w === 'D') && (
+                <rect
+                  x={mx - 13}
+                  y={my - 5}
+                  width="26"
+                  height="10"
+                  fill="#1f1f1f"
+                  transform={`rotate(9 ${mx} ${my})`}
+                />
+              )}
+              {w === 'TG' && (
+                <g>
+                  <circle
+                    cx={mx}
+                    cy={my}
+                    r="11"
+                    fill="#c8cdd0"
+                    stroke="#1f1f1f"
+                    strokeWidth="1.4"
+                  />
+                  <text x={mx} y={my + 4} textAnchor="middle" fontSize="9" fill="#1f1f1f">
+                    TG
+                  </text>
+                </g>
+              )}
+              {w !== 'TG' && (
+                <>
+                  <text
+                    x={w === 'F' ? 520 : 498}
+                    y={y1 - 20}
+                    textAnchor="middle"
+                    fontSize="13"
+                    fill="#1f1f1f"
+                  >
+                    {w}1
+                  </text>
+                  <text
+                    x={w === 'F' ? 620 : 598}
+                    y={y2 - 20}
+                    textAnchor="middle"
+                    fontSize="13"
+                    fill="#1f1f1f"
+                  >
+                    {w}2
+                  </text>
+                </>
+              )}
+            </g>
+          );
+        })}
+        <text
+          x="690"
+          y={P.y + P.height - 30}
+          fontSize="12"
+          fontWeight="700"
+          fill="#1f1f1f"
+          letterSpacing=".5"
+        >
+          ⊗ ESSELTE STUDIUM
+        </text>
+        <text x="690" y={P.y + P.height - 17} fontSize="7" fill="#1f1f1f">
+          MADE IN SWEDEN
+        </text>
+      </g>
+      {/* Prime-mover state, as you would hear and see it on the bench */}
+      <g transform={`translate(${P.x + 680} ${P.y + 18})`} pointerEvents="none">
+        <rect width="214" height="86" rx="5" fill="#eef1f2" stroke="#9aa3a9" />
+        <text x="10" y="18" fontSize="10" fontWeight="700" fill="#33414c">
+          PRIME MOVER
+        </text>
+        <text
+          x="10"
+          y="38"
+          fontSize="12"
+          fontWeight="700"
+          fill={motorWarning ? '#b8321f' : '#22313c'}
+          data-testid={`${e.id}-motor`}
+        >
+          {motorText}
+        </text>
+        <text x="10" y="56" fontSize="9" fill="#4c5a64">
+          Windings U V W: {volts.map((v) => `${Math.round(v)}`).join(' / ')} V
+        </text>
+        <text x="10" y="72" fontSize="9" fill="#4c5a64">
+          Fed from R S T through its terminal box (top right)
+        </text>
+      </g>
+    </g>
+  );
+}
+
+/** Slide rheostat: perforated cover, slider on the top rail, A and B at the ends, C on the rail. */
+function SlideRheostat({ equipment: e, bench, result, onCommit }: LabProps) {
+  const parts = equipmentComponents(bench, e);
+  const find = (k: string) => parts.find((c) => c.id === `${e.id}.${k}`);
+  const ab = find('ab'),
+    ac = find('ac'),
+    cb = find('cb');
+  const spec = RHEOSTATS[e.definitionId as keyof typeof RHEOSTATS];
+  const [preview, setPreview] = useState<number | null>(null);
+  const [hover, setHover] = useState(false);
+  const drag = useRef<{
+    toLocal: (x: number) => number;
+    startX: number;
+    from: number;
+    fine: boolean;
+  } | null>(null);
+  if (ab?.kind !== 'resistor' || ac?.kind !== 'resistor' || cb?.kind !== 'resistor' || !spec)
+    return null;
+  const stored = sliderPosition(ab.resistanceOhms, ac.resistanceOhms, cb.resistanceOhms);
+  const position = preview ?? stored;
+  const railX = 92,
+    railW = 370;
+  const clamp = (x: number) => Math.min(1, Math.max(0, Math.round(x * 1e4) / 1e4));
+  const set = (x: number) => onCommit?.((b) => setSlider(b, e.id, spec.ohms, clamp(x)));
+  // Current in each end of the winding: what enters at A, and what enters at B.
+  const i = (c: { id: string }) => result.componentCurrents[c.id] ?? 0;
+  const amps = Math.max(Math.abs(i(ab) + i(ac)), Math.abs(i(ab) + i(cb)));
+  const ohms = sectionOhms(spec.ohms, position);
+  const fmt = (r: number) => (r >= 1000 ? `${(r / 1000).toFixed(3)} kΩ` : `${r.toFixed(1)} Ω`);
+  const overload = amps > spec.amps;
+  const sx = railX + position * railW;
+  return (
+    <g>
+      <defs>
+        <pattern id={`perf-${e.id}`} width="11" height="11" patternUnits="userSpaceOnUse">
+          <circle cx="5.5" cy="5.5" r="3" fill="#3c4246" />
+        </pattern>
+      </defs>
+      <g pointerEvents="none">
+        <rect x="8" y="146" width="524" height="18" rx="3" fill="#b8bec2" stroke="#8f979c" />
+        {[22, 506].map((x) => (
+          <rect key={x} x={x - 10} y="150" width="22" height="9" rx="4.5" fill="#7d868c" />
+        ))}
+        <rect
+          x="56"
+          y="54"
+          width="428"
+          height="94"
+          rx="14"
+          fill="#c9ced1"
+          stroke="#8f979c"
+          strokeWidth="2"
+        />
+        <rect
+          x="64"
+          y="62"
+          width="412"
+          height="80"
+          rx="10"
+          fill={`url(#perf-${e.id})`}
+          opacity=".75"
+        />
+        {overload && (
+          <rect x="56" y="54" width="428" height="94" rx="14" fill="#ff5a2e" opacity=".35" />
+        )}
+        <rect x="10" y="66" width="48" height="82" rx="3" fill="#b3b9bd" stroke="#8f979c" />
+        <rect x="482" y="66" width="48" height="82" rx="3" fill="#b3b9bd" stroke="#8f979c" />
+        <rect
+          x={railX - 14}
+          y="38"
+          width={railW + 28}
+          height="10"
+          rx="2"
+          fill="#9aa2a7"
+          stroke="#6f777c"
+        />
+        {(
+          [
+            ['A', 34, 176],
+            ['B', 506, 176],
+            ['C', 34, 18],
+          ] as const
+        ).map(([label, x, y]) => (
+          <text
+            key={label}
+            x={x}
+            y={y}
+            textAnchor="middle"
+            fontSize="13"
+            fontWeight="800"
+            fill="#1f2326"
+          >
+            {label}
+          </text>
+        ))}
+        <rect x="196" y="88" width="148" height="30" rx="3" fill="#e9ebec" stroke="#8f979c" />
+        <text x="270" y="108" textAnchor="middle" fontSize="12" fontWeight="700" fill="#2b3236">
+          {spec.name.toUpperCase()}
+        </text>
+        <text x="270" y="172" textAnchor="middle" className="scope-print">
+          {spec.ohms >= 1000 ? `${spec.ohms / 1000} kΩ` : `${spec.ohms} Ω`} · {spec.amps} A (plate
+          not photographed)
+        </text>
+        {overload && (
+          <text x="270" y="30" textAnchor="middle" fontSize="11" fontWeight="700" fill="#b8321f">
+            Overloaded: {amps.toFixed(2)} A through a {spec.amps} A winding
+          </text>
+        )}
+      </g>
+      <g
+        transform={`translate(${sx} 43)`}
+        className="value-knob"
+        role="slider"
+        tabIndex={0}
+        aria-label={`${spec.name} slider`}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(position * 100)}
+        onPointerEnter={() => setHover(true)}
+        onPointerLeave={() => setHover(false)}
+        onPointerDown={(ev) => {
+          if (ev.button !== 0) return;
+          ev.stopPropagation();
+          ev.preventDefault();
+          const ctm = (ev.currentTarget.parentNode as SVGGraphicsElement).getScreenCTM();
+          if (!ctm) return;
+          drag.current = {
+            toLocal: (clientX) => (clientX - ctm.e) / ctm.a,
+            startX: ev.clientX,
+            from: position,
+            fine: ev.shiftKey,
+          };
+          ev.currentTarget.setPointerCapture(ev.pointerId);
+        }}
+        onPointerMove={(ev) => {
+          const d = drag.current;
+          if (!d) return;
+          ev.stopPropagation();
+          // Shift while dragging moves the slider ten times slower, for fine settings.
+          const fine = ev.shiftKey;
+          if (fine !== d.fine) {
+            d.startX = ev.clientX;
+            d.from = preview ?? d.from;
+            d.fine = fine;
+          }
+          const moved = (d.toLocal(ev.clientX) - d.toLocal(d.startX)) / railW;
+          setPreview(clamp(d.from + moved * (fine ? 0.1 : 1)));
+        }}
+        onPointerUp={(ev) => {
+          ev.stopPropagation();
+          if (drag.current && preview !== null) set(preview);
+          drag.current = null;
+          setPreview(null);
+        }}
+        onPointerCancel={() => {
+          drag.current = null;
+          setPreview(null);
+        }}
+        onWheel={(ev) => {
+          // The wheel nudges the slider by 0.1 % (1 % with Shift), towards B when scrolling down.
+          ev.stopPropagation();
+          set(stored + Math.sign(ev.deltaY) * (ev.shiftKey ? 0.01 : 0.001));
+        }}
+        onKeyDown={(ev) => {
+          const step = ev.shiftKey ? 0.05 : ev.altKey ? 0.0005 : 0.005;
+          if (ev.key === 'ArrowRight' || ev.key === 'ArrowUp') set(stored + step);
+          else if (ev.key === 'ArrowLeft' || ev.key === 'ArrowDown') set(stored - step);
+          else return;
+          ev.preventDefault();
+          ev.stopPropagation();
+        }}
+      >
+        <title>
+          Drag the slider (hold Shift for fine). Wheel: 0.1 % steps. Arrow keys: 0.5 %, Shift 5 %,
+          Alt 0.05 %.
+        </title>
+        <rect
+          x="-20"
+          y="-16"
+          width="40"
+          height="34"
+          rx="6"
+          fill="#f1ede1"
+          stroke="#9b9682"
+          strokeWidth="1.5"
+        />
+        <rect x="-12" y="-8" width="24" height="12" rx="2" fill="#d9d3c1" />
+        {(preview !== null || hover) && (
+          <g pointerEvents="none">
+            <rect x="-62" y="-50" width="124" height="22" rx="4" fill="#243849" />
+            <text y="-35" textAnchor="middle" fill="#fff" fontSize="11">
+              {(position * 100).toFixed(1)} % · A–C {fmt(ohms.ac)}
+            </text>
+          </g>
+        )}
+      </g>
+    </g>
+  );
+}
+
+/** Control and power supply console: front (meters, knob) and side panel side by side. */
+function SupplyConsole({ equipment: e, bench, circuit, result, onPower, onValue }: LabProps) {
+  const parts = equipmentComponents(bench, e);
+  const variable = parts.find((c) => c.id === `${e.id}.var`);
+  if (variable?.kind !== 'dc-source') return null;
+  const on = variable.enabled;
+  const v = (t: string) => result.nodeVoltages[circuit.terminalToNode[t]] ?? 0;
+  const volts = on ? Math.max(0, v(variable.positive) - v(variable.negative)) : 0;
+  const amps = on ? Math.max(0, -(result.componentCurrents[variable.id] ?? 0)) : 0;
+  const percent = Math.round((variable.voltageVolts / 220) * 100);
+  const meter = (
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    value: number,
+    full: number,
+    unit: string,
+    ticks: number[],
+    face: string,
+  ) => {
+    const angle = -130 + Math.min(1, Math.max(0, value / full)) * 80;
+    return (
+      <g transform={`translate(${x} ${y})`} pointerEvents="none">
+        <rect width={w} height={h} rx="3" fill="#cfd3d5" stroke="#7d868b" strokeWidth="3" />
+        <rect x="7" y="7" width={w - 14} height={h - 14} fill={face} />
+        {ticks.map((t) => {
+          const a = ((-130 + (t / full) * 80) * Math.PI) / 180;
+          return (
+            <text
+              key={t}
+              x={w / 2 + Math.cos(a) * (h - 30)}
+              y={h - 14 + Math.sin(a) * (h - 30)}
+              textAnchor="middle"
+              fontSize="10"
+              fill="#2b2b2b"
+            >
+              {t}
+            </text>
+          );
+        })}
+        <text x={w - 22} y={22} fontSize="14" fontWeight="700" fill="#2b2b2b">
+          {unit}
+        </text>
+        <text x={w - 26} y={h - 18} fontSize="9" fill="#2b2b2b">
+          DC
+        </text>
+        <g
+          transform={`translate(${w / 2} ${h - 14}) rotate(${angle})`}
+          style={{ transition: 'transform .6s ease-out' }}
+        >
+          <path d={`M0 0H${h - 22}`} stroke="#1d1d1d" strokeWidth="2.4" strokeLinecap="round" />
+        </g>
+        <circle cx={w / 2} cy={h - 14} r="6" fill="#ddd" stroke="#666" />
+      </g>
+    );
+  };
+  const post = (x: number, y: number, title: string) => (
+    <g key={`${x}-${y}`} transform={`translate(${x} ${y})`} opacity=".55">
+      <title>{title}</title>
+      <circle r="13" fill="#1b1d1f" />
+      <circle r="5" fill="#000" />
+    </g>
+  );
+  return (
+    <g>
+      {/* Front: sloped grey panel */}
+      <rect
+        x="12"
+        y="12"
+        width="376"
+        height="446"
+        rx="4"
+        fill="#c5c9cb"
+        stroke="#868e93"
+        pointerEvents="none"
+      />
+      {meter(84, 40, 200, 120, volts, 250, 'V', [0, 50, 100, 150, 200, 250], '#ece4c8')}
+      {meter(84, 178, 200, 120, amps, 10, 'A', [0, 2, 4, 6, 8, 10], '#f3f2ee')}
+      <text
+        x="300"
+        y="250"
+        fontSize="8"
+        fill="#2b2b2b"
+        transform="rotate(90 300 250)"
+        pointerEvents="none"
+      >
+        A-METER
+      </text>
+      <g pointerEvents="none">
+        <text x="46" y="60" textAnchor="middle" fontSize="11" fontWeight="700" fill="#1f2326">
+          0–220 V
+        </text>
+        <text x="46" y="72" textAnchor="middle" fontSize="9" fontWeight="700" fill="#1f2326">
+          DC
+        </text>
+        <PolarityMark x={20} y={92} sign="+" ink="#1f2326" />
+        <PolarityMark x={20} y={140} sign="−" ink="#1f2326" />
+      </g>
+      {post(46, 214, 'Not used by the generator sheets; its function is not known yet.')}
+      {post(46, 262, 'Not used by the generator sheets; its function is not known yet.')}
+      <g transform="translate(200 382)">
+        <circle r="62" fill="#e7e2d3" stroke="#9a957f" pointerEvents="none" />
+        {Array.from({ length: 11 }, (_, i) => {
+          const a = ((-225 + i * 27) * Math.PI) / 180;
+          return (
+            <text
+              key={i}
+              x={Math.cos(a) * 52}
+              y={Math.sin(a) * 52 + 3}
+              textAnchor="middle"
+              fontSize="8"
+              fill="#333"
+              pointerEvents="none"
+            >
+              {i * 10}
+            </text>
+          );
+        })}
+        <ValueKnob
+          x={0}
+          y={0}
+          label="Console output (0–100 % of 220 V)"
+          value={percent}
+          min={0}
+          max={100}
+          step={1}
+          onChange={(p) => onValue(variable.id, 'voltageVolts', Math.round(p * 2.2 * 10) / 10)}
+        />
+      </g>
+      <DeviceValue
+        x={290}
+        y={420}
+        width={92}
+        label="Console output voltage"
+        value={variable.voltageVolts}
+        unit="V"
+        min={0}
+        max={220}
+        onChange={(x) => onValue(variable.id, 'voltageVolts', x)}
+      />
+      {/* Side panel, unfolded to the right of the front */}
+      <rect
+        x="410"
+        y="12"
+        width="298"
+        height="446"
+        rx="4"
+        fill="#4d6f91"
+        stroke="#2c4660"
+        pointerEvents="none"
+      />
+      <g pointerEvents="none">
+        <rect x="436" y="28" width="86" height="120" rx="8" fill="#e6dfcc" stroke="#a69f8a" />
+        {[58, 112].map((y) => (
+          <g key={y}>
+            <circle cx="479" cy={y} r="20" fill="#d4ccb4" />
+            <circle cx="471" cy={y} r="3.5" fill="#3a3a3a" />
+            <circle cx="487" cy={y} r="3.5" fill="#3a3a3a" />
+          </g>
+        ))}
+        <text x="479" y="162" textAnchor="middle" className="scope-print" fill="#e8eef3">
+          220 V AC outlet
+        </text>
+      </g>
+      <circle cx="560" cy="48" r="11" fill={'#f2c230'} stroke="#7d6a1d" pointerEvents="none">
+        <title>Mains</title>
+      </circle>
+      <circle
+        cx="560"
+        cy="84"
+        r="11"
+        fill={on ? '#ff4a3a' : '#7a2a24'}
+        stroke="#4d1a16"
+        pointerEvents="none"
+      >
+        <title>Outputs on</title>
+      </circle>
+      <g
+        {...press(() => on && onPower(e.id), 'STOP: switch the console outputs off')}
+        className="power-switch"
+      >
+        <circle cx="560" cy="124" r="14" fill="#d23a2e" stroke="#7d1f18" strokeWidth="2" />
+        <text x="590" y="128" fontSize="9" fill="#e8eef3">
+          STOP
+        </text>
+      </g>
+      <g
+        {...press(() => !on && onPower(e.id), 'START: switch the console outputs on')}
+        className="power-switch"
+      >
+        <rect
+          x="610"
+          y="34"
+          width="44"
+          height="40"
+          rx="4"
+          fill="#1f2326"
+          stroke="#0e1011"
+          strokeWidth="2"
+        />
+        <text x="632" y="90" textAnchor="middle" fontSize="9" fill="#e8eef3">
+          START
+        </text>
+      </g>
+      <g pointerEvents="none">
+        <text x="492" y="222" textAnchor="middle" fontSize="11" fontWeight="700" fill="#fff">
+          220 V DC
+        </text>
+        <text x="560" y="222" textAnchor="middle" fontSize="11" fontWeight="700" fill="#fff">
+          110 V DC
+        </text>
+        {[466, 534].map((x) => (
+          <g key={x}>
+            <PolarityMark x={x} y={262} sign="+" ink="#ffffff" />
+            <PolarityMark x={x} y={310} sign="−" ink="#ffffff" />
+          </g>
+        ))}
+        <rect x="612" y="250" width="40" height="40" rx="4" fill="#1f2326" />
+        <path d="M676 300V430" stroke="#d7dde1" strokeWidth="8" strokeLinecap="round" />
+      </g>
+      {[358, 406].flatMap((y) => [
+        post(492, y, 'Not used by the generator sheets; its function is not known yet.'),
+        post(560, y, 'Not used by the generator sheets; its function is not known yet.'),
+      ])}
+      {post(526, 446, 'Not used by the generator sheets; its function is not known yet.')}
+    </g>
+  );
+}
+
+/** "LASTBRYTARE / LOAD SWITCH 380V ~ 16A": three-pole rotary switch, 0 / I. */
+function LoadSwitch({ equipment: e, bench, onCommit }: LabProps) {
+  const poles = equipmentComponents(bench, e).filter((c) => c.kind === 'resistor');
+  const closed = poles.some((c) => c.kind === 'resistor' && c.resistanceOhms < 1);
+  const toggle = () =>
+    onCommit?.((b) => ({
+      ...b,
+      components: b.components.map((c) =>
+        e.componentIds.includes(c.id) && c.kind === 'resistor'
+          ? { ...c, resistanceOhms: closed ? SWITCH_OPEN_OHMS : SWITCH_CLOSED_OHMS }
+          : c,
+      ),
+    }));
+  return (
+    <g>
+      <g pointerEvents="none">
+        <rect x="8" y="8" width="244" height="414" rx="3" fill="#cfd3d4" stroke="#8d969b" />
+        {[
+          [20, 20],
+          [240, 20],
+          [20, 410],
+          [240, 410],
+        ].map(([x, y]) => (
+          <Screw key={`${x}-${y}`} x={x} y={y} />
+        ))}
+        <text x="30" y="40" fontSize="10" fontWeight="700" fill="#2b2b2b" letterSpacing=".5">
+          LASTBRYTARE
+        </text>
+        <text x="30" y="53" fontSize="10" fontWeight="700" fill="#2b2b2b" letterSpacing=".5">
+          LOAD SWITCH
+        </text>
+        <text x="148" y="53" fontSize="10" fontWeight="700" fill="#2b2b2b">
+          380V ~ 16A
+        </text>
+        <rect x="64" y="70" width="132" height="132" rx="8" fill="#e6e1cf" stroke="#a49e88" />
+        <rect x="74" y="80" width="112" height="112" rx="4" fill="#1d2023" />
+        <text x="130" y="98" textAnchor="middle" fontSize="11" fill="#e6e6e6">
+          I
+        </text>
+        <text x="172" y="140" textAnchor="middle" fontSize="11" fill="#e6e6e6">
+          0
+        </text>
+        <rect x="204" y="150" width="30" height="44" rx="2" fill="#e8c43a" />
+        {['1', '3', '5'].map((n, i) => (
+          <text key={n} x="22" y={242 + i * 46} fontSize="10" fill="#2b2b2b">
+            {n}
+          </text>
+        ))}
+        {['2', '4', '6'].map((n, i) => (
+          <text key={n} x="226" y={308 + i * 46} fontSize="10" fill="#2b2b2b">
+            {n}
+          </text>
+        ))}
+      </g>
+      <g
+        transform={`translate(130 136) rotate(${closed ? -90 : 0})`}
+        style={{ transition: 'transform .25s' }}
+        {...press(toggle, closed ? 'Load switch to 0 (open)' : 'Load switch to I (closed)')}
+        className="power-switch"
+      >
+        <title>Turn the switch: 0 (open) / I (closed, all three poles)</title>
+        <circle r="40" fill="#2b2f33" />
+        <path d="M-38 -9H38V9H-38Z" fill="#3a3f44" />
+        <path d="M0 -9H38V9H0Z" fill="#c5cbd0" />
+      </g>
+      <text x="130" y="224" textAnchor="middle" className="scope-print" pointerEvents="none">
+        {closed ? 'I · closed' : '0 · open'}
+      </text>
+    </g>
+  );
+}
+
+/** Three-phase R S T N outlet panel with a three-pole breaker and phase lamps. */
+function ThreePhaseSupply({ equipment: e, bench, onCommit }: LabProps) {
+  const state = bench.threePhase?.[e.id] ?? { on: false };
+  const toggle = () =>
+    onCommit?.((b) => ({
+      ...b,
+      threePhase: { ...b.threePhase, [e.id]: { on: !state.on } },
+    }));
+  const lamps: [string, string][] = [
+    ['R', '#e2463a'],
+    ['S', '#f0c22f'],
+    ['T', '#3f9a5a'],
+  ];
+  return (
+    <g>
+      <g pointerEvents="none">
+        <rect x="8" y="8" width="404" height="234" rx="4" fill="#c9cdd0" stroke="#8d969b" />
+        <text x="24" y="34" fontSize="13" fontWeight="700" fill="#22292e">
+          3~ 380 V · 50 Hz
+        </text>
+        <text x="24" y="50" fontSize="9" fill="#3d474e">
+          R S T: 380 V between lines, 220 V to N
+        </text>
+        {lamps.map(([label, color], i) => (
+          <g key={label} transform={`translate(${70 + i * 92} 104)`}>
+            <circle r="14" fill={state.on ? color : '#5b5f62'} stroke="#2c3033" strokeWidth="2" />
+            {state.on && <circle r="22" fill={color} opacity=".25" />}
+            <text y="-22" textAnchor="middle" fontSize="11" fontWeight="700" fill="#22292e">
+              {label}
+            </text>
+          </g>
+        ))}
+        {(['R', 'S', 'T', 'N'] as const).map((k, i) => (
+          <text
+            key={k}
+            x={70 + i * 92}
+            y="234"
+            textAnchor="middle"
+            fontSize="12"
+            fontWeight="700"
+            fill="#22292e"
+          >
+            {k}
+          </text>
+        ))}
+        {state.trip && !state.on && (
+          <text x="210" y="148" textAnchor="middle" fontSize="9" fontWeight="700" fill="#b8321f">
+            {state.trip.length > 70 ? `${state.trip.slice(0, 68)}…` : state.trip}
+            <title>{state.trip}</title>
+          </text>
+        )}
+      </g>
+      {/* Three-pole miniature breaker */}
+      <g
+        transform="translate(318 22)"
+        {...press(toggle, state.on ? 'Three-phase breaker off' : 'Three-phase breaker on')}
+        className="power-switch"
+      >
+        <title>{state.trip && !state.on ? `Tripped: ${state.trip}` : 'Three-pole breaker'}</title>
+        <rect width="80" height="62" rx="4" fill="#f1f1ee" stroke="#9a9d98" />
+        <rect x="26" y="12" width="28" height="38" rx="3" fill="#d9dbd6" />
+        <rect
+          x="30"
+          y={state.on ? 14 : 30}
+          width="20"
+          height="18"
+          rx="2"
+          fill={state.on ? '#2f7a4a' : '#22272b'}
+        />
+        <text x="40" y="58" textAnchor="middle" fontSize="8" fill="#333">
+          {state.on ? 'I · ON' : state.trip ? 'TRIPPED' : '0 · OFF'}
+        </text>
+      </g>
+    </g>
+  );
+}
+
+/** A printed + or − beside a socket: these panels' posts are all black, so polarity is printed. */
+function PolarityMark({ x, y, sign, ink }: { x: number; y: number; sign: '+' | '−'; ink: string }) {
+  return (
+    <text
+      x={x}
+      y={y + 6}
+      textAnchor="middle"
+      fontSize="18"
+      fontWeight="800"
+      fill={sign === '+' ? '#d23a2e' : ink}
+    >
+      {sign}
+    </text>
+  );
+}
+
+/** Frequency inverter (assumed): L1 L2 L3 in, U V W out, frequency set by knob or typed. */
+function FrequencyInverter({ equipment: e, bench, result, onCommit }: LabProps) {
+  const state = bench.threePhase?.[e.id] ?? { on: false, hz: INVERTER_DEFAULT_HZ };
+  const hz = state.hz ?? INVERTER_DEFAULT_HZ;
+  const set = (change: { on?: boolean; hz?: number }) =>
+    onCommit?.((b) => {
+      const now = b.threePhase?.[e.id] ?? { on: false, hz: INVERTER_DEFAULT_HZ };
+      const next = { ...now, ...change };
+      if (change.on) delete next.trip;
+      return { ...b, threePhase: { ...b.threePhase, [e.id]: next } };
+    });
+  const starved =
+    state.on && result.diagnostics.some((d) => /frequency inverter is set to RUN/.test(d.message));
+  const display = !state.on ? 'STOP' : starved ? 'no In' : `${hz.toFixed(1)}`;
+  return (
+    <g>
+      <g pointerEvents="none">
+        <rect x="8" y="8" width="284" height="254" rx="6" fill="#d9dcde" stroke="#8d969b" />
+        {(['L1', 'L2', 'L3'] as const).map((k, i) => (
+          <text
+            key={k}
+            x={60 + i * 90}
+            y="82"
+            textAnchor="middle"
+            fontSize="12"
+            fontWeight="800"
+            fill="#1f2326"
+          >
+            {k}
+          </text>
+        ))}
+        <text x="150" y="22" textAnchor="middle" fontSize="8.5" fill="#3d474e">
+          INPUT · from R S T
+        </text>
+        {(['U', 'V', 'W'] as const).map((k, i) => (
+          <text
+            key={k}
+            x={60 + i * 90}
+            y="200"
+            textAnchor="middle"
+            fontSize="12"
+            fontWeight="800"
+            fill="#1f2326"
+          >
+            {k}
+          </text>
+        ))}
+        <text x="150" y="256" textAnchor="middle" fontSize="8.5" fill="#3d474e">
+          OUTPUT · to motor U1 V1 W1
+        </text>
+        <rect x="24" y="96" width="132" height="44" rx="4" fill="#1d2a22" />
+        <text
+          x="146"
+          y="128"
+          textAnchor="end"
+          fontFamily="var(--mono)"
+          fontSize="24"
+          fill={state.on && !starved ? '#7ef0a0' : '#4f6b58'}
+          data-testid={`${e.id}-display`}
+        >
+          {display}
+        </text>
+        <text x="26" y="154" fontSize="8.5" fill="#3d474e">
+          Hz · INVERTER (assumed)
+        </text>
+        {state.trip && !state.on && (
+          <text x="150" y="172" textAnchor="middle" fontSize="8.5" fontWeight="700" fill="#b8321f">
+            {state.trip.length > 52 ? `${state.trip.slice(0, 50)}…` : state.trip}
+            <title>{state.trip}</title>
+          </text>
+        )}
+      </g>
+      <ValueKnob
+        x={204}
+        y={118}
+        small
+        label="Inverter frequency (Hz)"
+        value={hz}
+        min={0}
+        max={INVERTER_MAX_HZ}
+        step={0.1}
+        onChange={(v) => set({ hz: Math.round(v * 10) / 10 })}
+      />
+      <DeviceValue
+        x={170}
+        y={158}
+        width={76}
+        label="Inverter frequency"
+        value={hz}
+        unit="Hz"
+        min={0}
+        max={INVERTER_MAX_HZ}
+        onChange={(v) => set({ hz: Math.round(v * 10) / 10 })}
+      />
+      <g {...press(() => set({ on: true }), 'Inverter RUN')} className="power-switch">
+        <rect
+          x="250"
+          y="98"
+          width="34"
+          height="22"
+          rx="4"
+          fill={state.on ? '#2f7a4a' : '#22272b'}
+        />
+        <text x="267" y="113" textAnchor="middle" fontSize="9" fill="#fff">
+          RUN
+        </text>
+      </g>
+      <g {...press(() => set({ on: false }), 'Inverter STOP')} className="power-switch">
+        <rect x="250" y="126" width="34" height="22" rx="4" fill="#c2382f" />
+        <text x="267" y="141" textAnchor="middle" fontSize="9" fill="#fff">
+          STOP
+        </text>
+      </g>
+    </g>
+  );
+}
