@@ -1,4 +1,4 @@
-import type { EquipmentDefinition } from '../domain/models';
+import type { Component, EquipmentDefinition } from '../domain/models';
 import { GENERATOR } from '../machines/dcGenerator';
 
 /**
@@ -74,64 +74,91 @@ export const mgSet: EquipmentDefinition = {
 };
 
 /**
- * Slide rheostat: winding A–B with the slider C. The two sections are separate resistors whose
- * sum is the whole winding; the slider position is their ratio. The rating plates are not
- * photographed: field rheostat 2 kΩ / 1 A and load rheostat 300 Ω / 5 A are assumptions sized
- * for sheets 2–5.
+ * Slide rheostat: a winding A–B of resistance R, with the slider C touching it at a fraction x
+ * of the way from A through a small contact resistance r. The winding A–B is therefore always R,
+ * and A–C = x·R + r, C–B = (1 − x)·R + r.
+ *
+ * The tapped winding is a star (A–tap x·R, tap–B (1 − x)·R, tap–C r) whose centre is not a
+ * socket, so it is stored as the equivalent delta of three resistors between A, B and C, which
+ * behaves identically from the sockets. The rating plates are not photographed: field rheostat
+ * 2 kΩ / 1 A and load rheostat 300 Ω / 5 A are assumptions sized for sheets 2–5.
  */
 export const RHEOSTATS = {
   [FIELD_RHEOSTAT_ID]: { ohms: 2000, amps: 1, name: 'Field rheostat' },
   [LOAD_RHEOSTAT_ID]: { ohms: 300, amps: 5, name: 'Load rheostat' },
 } as const;
-/** Contact resistance at the very end of the winding. */
+/** Resistance of the slider's contact with the winding. */
 export const SLIDER_CONTACT_OHMS = 0.5;
+/** The slider cannot sit exactly on an end turn; this keeps the delta finite. */
+const END_FRACTION = 1e-5;
+
+/** Delta resistors A–B, A–C, C–B for a slider position 0 (at A) … 1 (at B). */
+export function rheostatDelta(totalOhms: number, position: number) {
+  const x = Math.min(1 - END_FRACTION, Math.max(END_FRACTION, position));
+  const ra = x * totalOhms,
+    rb = (1 - x) * totalOhms,
+    rc = SLIDER_CONTACT_OHMS;
+  const sum = ra * rb + rb * rc + rc * ra;
+  return { ab: sum / rc, ac: sum / rb, cb: sum / ra };
+}
+/** Slider position from the stored delta resistors (the inverse transform). */
+export function sliderPosition(ab: number, ac: number, cb: number): number {
+  const sum = ab + ac + cb;
+  const ra = (ab * ac) / sum,
+    rb = (ab * cb) / sum;
+  return ra + rb > 0 ? Math.min(1, Math.max(0, ra / (ra + rb))) : 0;
+}
+/** What an ohmmeter would read between A and C, and between C and B. */
+export function sectionOhms(totalOhms: number, position: number) {
+  const x = Math.min(1, Math.max(0, position));
+  return { ac: x * totalOhms + SLIDER_CONTACT_OHMS, cb: (1 - x) * totalOhms + SLIDER_CONTACT_OHMS };
+}
+
 const rheostat = (id: keyof typeof RHEOSTATS): EquipmentDefinition => {
   const { ohms, name } = RHEOSTATS[id];
+  // Slider at the B end on delivery: A–C is the whole winding (the safe start for a field).
+  const start = rheostatDelta(ohms, 1);
+  const section = (key: 'ab' | 'ac' | 'cb', a: string, b: string) => ({
+    key,
+    kind: 'resistor' as const,
+    a,
+    b,
+    resistanceOhms: start[key],
+    section: true,
+  });
   return {
     id,
     name: `${name} (slide)`,
     kind: 'slide-rheostat',
     size: { width: 540, height: 180 },
-    limits: { resistanceOhms: [SLIDER_CONTACT_OHMS, ohms + SLIDER_CONTACT_OHMS] },
+    limits: { resistanceOhms: [1e-3, 1e9] },
     terminals: [
       { key: 'A', label: 'A', x: 34, y: 140, color: 'black' },
       { key: 'C', label: 'C', x: 34, y: 46, color: 'black' },
       { key: 'B', label: 'B', x: 506, y: 140, color: 'black' },
     ],
-    components: [
-      // Slider at the B end on delivery: A–C is the whole winding (the safe start for a field).
-      {
-        key: 'ac',
-        kind: 'resistor',
-        a: 'A',
-        b: 'C',
-        resistanceOhms: ohms + SLIDER_CONTACT_OHMS,
-        section: true,
-      },
-      {
-        key: 'cb',
-        kind: 'resistor',
-        a: 'C',
-        b: 'B',
-        resistanceOhms: SLIDER_CONTACT_OHMS,
-        section: true,
-      },
-    ],
+    components: [section('ab', 'A', 'B'), section('ac', 'A', 'C'), section('cb', 'C', 'B')],
   };
 };
 export const fieldRheostat = rheostat(FIELD_RHEOSTAT_ID);
 export const loadRheostat = rheostat(LOAD_RHEOSTAT_ID);
 
-/** Slider position 0 (at A) … 1 (at B) from the two section resistances. */
-export function sliderPosition(acOhms: number, cbOhms: number): number {
-  const total = acOhms + cbOhms - 2 * SLIDER_CONTACT_OHMS;
-  return total > 0 ? Math.min(1, Math.max(0, (acOhms - SLIDER_CONTACT_OHMS) / total)) : 0;
-}
-export function sectionOhms(totalOhms: number, position: number): { ac: number; cb: number } {
-  const x = Math.min(1, Math.max(0, position));
+/** Sets a rheostat's slider on a bench, as one edit. */
+export function setSlider<B extends { components: Component[] }>(
+  bench: B,
+  equipmentId: string,
+  totalOhms: number,
+  position: number,
+): B {
+  const d = rheostatDelta(totalOhms, position);
   return {
-    ac: SLIDER_CONTACT_OHMS + x * totalOhms,
-    cb: SLIDER_CONTACT_OHMS + (1 - x) * totalOhms,
+    ...bench,
+    components: bench.components.map((c) => {
+      const key = c.id.slice(equipmentId.length + 1) as 'ab' | 'ac' | 'cb';
+      return c.id.startsWith(`${equipmentId}.`) && c.kind === 'resistor' && key in d
+        ? { ...c, resistanceOhms: d[key] }
+        : c;
+    }),
   };
 }
 

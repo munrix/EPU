@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Workbench } from '../src/domain/models';
 import { assembleCircuit } from '../src/electrical/circuit/assemble';
 import { benchSolver } from '../src/electrical/solvers/machine-dc';
-import { RHEOSTATS, sectionOhms, SWITCH_CLOSED_OHMS } from '../src/equipment/machineLab';
+import { RHEOSTATS, setSlider, SWITCH_CLOSED_OHMS } from '../src/equipment/machineLab';
 import { stepContext } from '../src/experiments/context';
 import { excitationMode } from '../src/experiments/generator';
 import {
@@ -38,19 +38,10 @@ const closeSwitch = (b: Workbench): Workbench => ({
       : c,
   ),
 });
+/** Sets a rheostat so that A–C is the given resistance (as on an ohmmeter). */
 const slider = (b: Workbench, id: 'rf' | 'rl', ohms: number): Workbench => {
   const total = RHEOSTATS[id === 'rf' ? 'rheostat-field-v1' : 'rheostat-load-v1'].ohms;
-  const s = sectionOhms(total, ohms / total);
-  return {
-    ...b,
-    components: b.components.map((c) =>
-      c.id === `${id}.ac` && c.kind === 'resistor'
-        ? { ...c, resistanceOhms: s.ac }
-        : c.id === `${id}.cb` && c.kind === 'resistor'
-          ? { ...c, resistanceOhms: s.cb }
-          : c,
-    ),
-  };
+  return setSlider(b, id, total, ohms / total);
 };
 /** Adjusts a control until a reading reaches a target (the reading rises with the control). */
 function tune(

@@ -387,13 +387,27 @@ export const generatorCritical: ExperimentDefinition = {
 
 // ------------------------------------------------------------------ Sheet 5: load test
 
-/** Load current on the 6–12 A ammeter (meter3), only when it is in series with the load. */
+/** Current entering the load rheostat at each of its sockets A, B and C. */
+const rheostatInflow = (c: StepContext) => {
+  const ab = c.current('rl.ab'),
+    ac = c.current('rl.ac'),
+    cb = c.current('rl.cb');
+  return [ab + ac, -ab - cb, cb - ac];
+};
+/** The 6–12 A ammeter (meter3) is in a lead of the load circuit through one of the switch poles. */
+const loadMeterWired = (c: StepContext) =>
+  ['sw.pole1', 'sw.pole2', 'sw.pole3'].some((pole) => c.meterInSeries(pole, 'meter3'));
+/**
+ * Load current on the 6–12 A ammeter (meter3), only when that meter carries the current going
+ * through the load rheostat (switch closed) or sits in the switched load lead (switch open).
+ */
 export function loadAmps(c: StepContext): number | null {
   const m = c.meter('meter3');
   if (m.range.mode !== 'dc-current' || m.status !== 'valid' || m.value === null) return null;
-  if (Math.abs(m.value) < 0.02) return 0;
-  return c.meterInSeries('rl.ac', 'meter3') || c.meterInSeries('rl.cb', 'meter3')
-    ? Math.abs(m.value)
+  if (Math.abs(m.value) < 0.02) return loadMeterWired(c) ? 0 : null;
+  const amps = Math.abs(m.value);
+  return rheostatInflow(c).some((i) => Math.abs(Math.abs(i) - amps) <= 0.005 + amps * 0.002)
+    ? amps
     : null;
 }
 const LOADS = ['0', '1', '1.5', '2', '2.5', '3'];
@@ -458,7 +472,7 @@ export const generatorLoad: ExperimentDefinition = {
     steps.voltmeter,
     {
       text: 'Load circuit: A1 → switch (load switch 1–2) → ammeter (meter3, 20A DC) → load rheostat (A and slider C) → A2. Leave the switch open (no load).',
-      check: (c) => c.meterInSeries('rl.ac', 'meter3') || c.meterInSeries('rl.cb', 'meter3'),
+      check: loadMeterWired,
     },
     {
       ...steps.primeMover,

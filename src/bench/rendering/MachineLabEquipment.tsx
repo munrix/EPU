@@ -9,6 +9,7 @@ import {
   MOTOR_BOX_AT,
   RHEOSTATS,
   sectionOhms,
+  setSlider,
   sliderPosition,
   SWITCH_CLOSED_OHMS,
   SWITCH_OPEN_OHMS,
@@ -466,32 +467,32 @@ function MgSet({ equipment: e, bench, result, onCommit }: LabProps) {
 /** Slide rheostat: perforated cover, slider on the top rail, A and B at the ends, C on the rail. */
 function SlideRheostat({ equipment: e, bench, result, onCommit }: LabProps) {
   const parts = equipmentComponents(bench, e);
-  const ac = parts.find((c) => c.id === `${e.id}.ac`);
-  const cb = parts.find((c) => c.id === `${e.id}.cb`);
+  const find = (k: string) => parts.find((c) => c.id === `${e.id}.${k}`);
+  const ab = find('ab'),
+    ac = find('ac'),
+    cb = find('cb');
   const spec = RHEOSTATS[e.definitionId as keyof typeof RHEOSTATS];
   const [preview, setPreview] = useState<number | null>(null);
-  const drag = useRef<{ toLocal: (x: number) => number } | null>(null);
-  if (ac?.kind !== 'resistor' || cb?.kind !== 'resistor' || !spec) return null;
-  const position = preview ?? sliderPosition(ac.resistanceOhms, cb.resistanceOhms);
+  const [hover, setHover] = useState(false);
+  const drag = useRef<{
+    toLocal: (x: number) => number;
+    startX: number;
+    from: number;
+    fine: boolean;
+  } | null>(null);
+  if (ab?.kind !== 'resistor' || ac?.kind !== 'resistor' || cb?.kind !== 'resistor' || !spec)
+    return null;
+  const stored = sliderPosition(ab.resistanceOhms, ac.resistanceOhms, cb.resistanceOhms);
+  const position = preview ?? stored;
   const railX = 92,
     railW = 370;
-  const set = (x: number) => {
-    const s = sectionOhms(spec.ohms, x);
-    onCommit?.((b) => ({
-      ...b,
-      components: b.components.map((c) =>
-        c.id === ac.id && c.kind === 'resistor'
-          ? { ...c, resistanceOhms: s.ac }
-          : c.id === cb.id && c.kind === 'resistor'
-            ? { ...c, resistanceOhms: s.cb }
-            : c,
-      ),
-    }));
-  };
-  const amps = Math.max(
-    Math.abs(result.componentCurrents[ac.id] ?? 0),
-    Math.abs(result.componentCurrents[cb.id] ?? 0),
-  );
+  const clamp = (x: number) => Math.min(1, Math.max(0, Math.round(x * 1e4) / 1e4));
+  const set = (x: number) => onCommit?.((b) => setSlider(b, e.id, spec.ohms, clamp(x)));
+  // Current in each end of the winding: what enters at A, and what enters at B.
+  const i = (c: { id: string }) => result.componentCurrents[c.id] ?? 0;
+  const amps = Math.max(Math.abs(i(ab) + i(ac)), Math.abs(i(ab) + i(cb)));
+  const ohms = sectionOhms(spec.ohms, position);
+  const fmt = (r: number) => (r >= 1000 ? `${(r / 1000).toFixed(3)} kΩ` : `${r.toFixed(1)} Ω`);
   const overload = amps > spec.amps;
   const sx = railX + position * railW;
   return (
@@ -581,20 +582,35 @@ function SlideRheostat({ equipment: e, bench, result, onCommit }: LabProps) {
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={Math.round(position * 100)}
+        onPointerEnter={() => setHover(true)}
+        onPointerLeave={() => setHover(false)}
         onPointerDown={(ev) => {
           if (ev.button !== 0) return;
           ev.stopPropagation();
           ev.preventDefault();
           const ctm = (ev.currentTarget.parentNode as SVGGraphicsElement).getScreenCTM();
           if (!ctm) return;
-          drag.current = { toLocal: (clientX) => (clientX - ctm.e) / ctm.a };
+          drag.current = {
+            toLocal: (clientX) => (clientX - ctm.e) / ctm.a,
+            startX: ev.clientX,
+            from: position,
+            fine: ev.shiftKey,
+          };
           ev.currentTarget.setPointerCapture(ev.pointerId);
         }}
         onPointerMove={(ev) => {
-          if (!drag.current) return;
+          const d = drag.current;
+          if (!d) return;
           ev.stopPropagation();
-          const x = (drag.current.toLocal(ev.clientX) - railX) / railW;
-          setPreview(Math.min(1, Math.max(0, x)));
+          // Shift while dragging moves the slider ten times slower, for fine settings.
+          const fine = ev.shiftKey;
+          if (fine !== d.fine) {
+            d.startX = ev.clientX;
+            d.from = preview ?? d.from;
+            d.fine = fine;
+          }
+          const moved = (d.toLocal(ev.clientX) - d.toLocal(d.startX)) / railW;
+          setPreview(clamp(d.from + moved * (fine ? 0.1 : 1)));
         }}
         onPointerUp={(ev) => {
           ev.stopPropagation();
@@ -606,18 +622,23 @@ function SlideRheostat({ equipment: e, bench, result, onCommit }: LabProps) {
           drag.current = null;
           setPreview(null);
         }}
+        onWheel={(ev) => {
+          // The wheel nudges the slider by 0.1 % (1 % with Shift), towards B when scrolling down.
+          ev.stopPropagation();
+          set(stored + Math.sign(ev.deltaY) * (ev.shiftKey ? 0.01 : 0.001));
+        }}
         onKeyDown={(ev) => {
-          // Fine (Alt) steps let the field current be set to the sheet's values near the low end.
-          const step = ev.shiftKey ? 0.1 : ev.altKey ? 0.001 : 0.01;
-          if (ev.key === 'ArrowRight' || ev.key === 'ArrowUp') set(position + step);
-          else if (ev.key === 'ArrowLeft' || ev.key === 'ArrowDown') set(position - step);
+          const step = ev.shiftKey ? 0.05 : ev.altKey ? 0.0005 : 0.005;
+          if (ev.key === 'ArrowRight' || ev.key === 'ArrowUp') set(stored + step);
+          else if (ev.key === 'ArrowLeft' || ev.key === 'ArrowDown') set(stored - step);
           else return;
           ev.preventDefault();
           ev.stopPropagation();
         }}
       >
         <title>
-          Drag the slider along the rail (arrow keys: 1 %, with Shift: 10 %, with Alt: 0.1 %)
+          Drag the slider (hold Shift for fine). Wheel: 0.1 % steps. Arrow keys: 0.5 %, Shift 5 %,
+          Alt 0.05 %.
         </title>
         <rect
           x="-20"
@@ -630,11 +651,11 @@ function SlideRheostat({ equipment: e, bench, result, onCommit }: LabProps) {
           strokeWidth="1.5"
         />
         <rect x="-12" y="-8" width="24" height="12" rx="2" fill="#d9d3c1" />
-        {preview !== null && (
-          <g>
-            <rect x="-26" y="-44" width="52" height="20" rx="4" fill="#243849" />
-            <text y="-30" textAnchor="middle" fill="#fff" fontSize="12">
-              {Math.round(preview * 100)} %
+        {(preview !== null || hover) && (
+          <g pointerEvents="none">
+            <rect x="-62" y="-50" width="124" height="22" rx="4" fill="#243849" />
+            <text y="-35" textAnchor="middle" fill="#fff" fontSize="11">
+              {(position * 100).toFixed(1)} % · A–C {fmt(ohms.ac)}
             </text>
           </g>
         )}

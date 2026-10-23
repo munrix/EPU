@@ -40,18 +40,21 @@ Two ways to wire it, both of which students must be able to do and get wrong:
 
 ## App model
 
-- Equipment with **three terminals** and two resistor components, A–C = x·R and C–B = (1 − x)·R,
-  with a small floor (about 0.5 Ω contact resistance) so x = 0 is not a perfect short.
-- The slider is **dragged along the top rail** on the bench, like the real one. The position also
-  appears as a percentage while dragging. The resistance in ohms is not shown, because the real
-  device has no scale.
-- **Current rating:** the winding has a maximum current (**?** from the rating plate). Above it,
-  the device warns (cover glows), and with a sustained overload the winding burns open, as a fuse
-  does in the existing protection model. Undo restores it.
-- **Power:** at the slider end of the winding, only the used part heats. The rating applies to
-  current, not to the whole-winding power.
-- The terminals use the same 4 mm sockets and stacking as the rest of the bench (**?** confirm
-  they are banana sockets and not screw posts).
+- **Tapped winding:** the winding A–B is always R. The slider C touches it at a fraction x from A
+  through a 0.5 Ω contact, so an ohmmeter reads A–C = x·R + 0.5 Ω and C–B = (1 − x)·R + 0.5 Ω.
+  The winding's tap point is not a socket, so the three resistances are stored as the equivalent
+  delta between A, B and C. It is electrically identical from the sockets.
+- **Controls:**
+  - Drag the slider along the rail; hold **Shift** while dragging to move ten times slower.
+  - The **mouse wheel** moves it 0.1 % (1 % with Shift).
+  - **Arrow keys** move it 0.5 %, 5 % with Shift, and 0.05 % with Alt.
+- **Readout:** hovering or dragging shows the position and the A–C resistance, for example
+  "6.0 % · A–C 121.5 Ω".
+- **Reach:** with these steps every field current on the sheets (0.1–0.6 A from 220 V through the
+  250 Ω field) can be set to the ammeter's 0.01 A, and every load current (1–3 A) to about
+  0.03 A. Both are covered by `tests/rheostat.test.ts`.
+- **Overload:** the current in each end of the winding is checked against the rating. Above it,
+  the cover glows and the overload is printed.
 
 ## How many the generator sheets need
 
