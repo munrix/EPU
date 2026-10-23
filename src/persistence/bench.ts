@@ -8,7 +8,18 @@ import { defaultMachineState } from '../machines/dcGenerator';
 const id = z.string().min(1).max(160);
 const finite = z.number().finite();
 const point = z.object({ x: finite.min(-10000).max(10000), y: finite.min(-10000).max(10000) });
-const color = z.enum(['red', 'black', 'yellow', 'blue', 'green']);
+const color = z.enum([
+  'red',
+  'black',
+  'yellow',
+  'blue',
+  'green',
+  'orange',
+  'purple',
+  'brown',
+  'white',
+  'grey',
+]);
 const attachment = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('terminal'), terminalId: id }),
   z.object({ kind: z.literal('plug-back'), plugId: id }),
@@ -23,7 +34,11 @@ const cables = z
       id,
       color,
       plugIds: z.tuple([id, id]),
-      routing: z.object({ slack: finite.min(0).max(500), waypoints: z.array(point).max(100) }),
+      routing: z.object({
+        slack: finite.min(0).max(500),
+        waypoints: z.array(point).max(100),
+        style: z.enum(['curved', 'straight']).optional(),
+      }),
     }),
   )
   .max(1000);

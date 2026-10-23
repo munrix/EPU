@@ -9,6 +9,7 @@ import {
   Layers3,
   Power,
   Settings2,
+  Spline,
   Trash2,
   Unplug,
   Wrench,
@@ -17,6 +18,7 @@ import {
 import type { CableColor, Workbench as BenchModel } from '../domain/models';
 import { cableColors } from '../domain/models';
 import { deleteCable, removeEquipment, unplug } from '../domain/connections';
+import { setBends, setCableStyle } from '../domain/cables';
 import { definitionOf } from '../equipment/registry';
 import { addBoard, addResistor } from '../equipment/commands';
 import { experimentById } from '../experiments/catalog';
@@ -538,6 +540,32 @@ export default function App() {
               </option>
             ))}
           </select>
+          <span className="selection-divider" />
+          <button
+            title="Switch between a hanging curve and straight runs"
+            aria-pressed={cable.routing.style === 'straight'}
+            onClick={() =>
+              commit((b) =>
+                setCableStyle(
+                  b,
+                  cable.id,
+                  cable.routing.style === 'straight' ? 'curved' : 'straight',
+                ),
+              )
+            }
+          >
+            <Spline size={14} /> {cable.routing.style === 'straight' ? 'Straight' : 'Curved'}
+          </button>
+          <button
+            title="Remove every bend point from this lead"
+            disabled={!cable.routing.waypoints.length}
+            onClick={() => {
+              commit((b) => setBends(b, cable.id, []));
+              setMessage('Bend points cleared.');
+            }}
+          >
+            Clear bends
+          </button>
           <span className="selection-divider" />
           {cable.plugIds.map((id, i) => (
             <button

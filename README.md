@@ -82,7 +82,8 @@ An ammeter across the supply blows the fuse. The trip is part of the same edit, 
 ## Interactions
 
 - Drag from sockets or the back of plugs to create leads. Occupied sockets target the exposed rear of their plug stack.
-- Choose red, black, yellow, blue, or green leads. Color has no electrical effect.
+- Choose from ten lead colours. Colour has no electrical effect. Next to the colours, **Paint every lead** recolours all leads in the chosen colour, **Each lead a different colour** gives every lead its own colour, and **Straight runs** lays every lead in tidy right-angled runs (press again for hanging curves).
+- **Cable management:** select a lead, then drag it anywhere to pull out a bend point. Bend points snap to a 20 px grid so neighbouring leads line up; hold **Alt** to place one freely. Drag a bend point to move it, and double-click it to remove it. The selection bar switches that lead between **Curved** and **Straight** and has **Clear bends**. Bends and colours never change the circuit.
 - Drag equipment by its top handle. Drag empty bench space to pan; scroll or use the toolbar to zoom; Fit bench frames everything beside an open panel.
 - Select a cable on the bench or in **Connections**. Unplug either end using **End 1 / End 2**, or delete the lead.
 - Unplugging a base plug lifts its child stack intact. Deleting a supporting lead or removing a module leaves plugs loose. Nothing is silently reparented to a terminal.

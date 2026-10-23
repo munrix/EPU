@@ -14,13 +14,19 @@ export interface Point {
   x: number;
   y: number;
 }
-export type CableColor = 'red' | 'black' | 'yellow' | 'blue' | 'green';
+export type CableColor =
+  'red' | 'black' | 'yellow' | 'blue' | 'green' | 'orange' | 'purple' | 'brown' | 'white' | 'grey';
 export const cableColors: Record<CableColor, string> = {
   red: '#cf5149',
   black: '#3d4348',
   yellow: '#d4a62f',
   blue: '#417eae',
   green: '#458762',
+  orange: '#e0812f',
+  purple: '#8a5bb0',
+  brown: '#8b5e3c',
+  white: '#e9ecee',
+  grey: '#8f989f',
 };
 
 export interface Terminal {
@@ -49,7 +55,11 @@ export interface Cable {
   id: Id;
   color: CableColor;
   plugIds: [Id, Id];
-  routing: { slack: number; waypoints: Point[] };
+  /**
+   * How the lead is laid: its sag, the bend points it passes through, and whether it hangs in a
+   * curve or runs straight between bends (the default is a curve).
+   */
+  routing: { slack: number; waypoints: Point[]; style?: 'curved' | 'straight' };
 }
 
 /** Where a component comes from. Instrument components are derived from settings, never saved. */
